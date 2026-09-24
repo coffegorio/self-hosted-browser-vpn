@@ -45,7 +45,10 @@ func main() {
 	if strings.ContainsAny(*listen, "\r\n") {
 		log.Fatal("invalid listen address")
 	}
-	proxy := newProxy(user, password)
+	proxy, err := newProxy(user, password)
+	if err != nil {
+		log.Fatal(err)
+	}
 	srv := &http.Server{
 		Addr:              *listen,
 		Handler:           proxy,

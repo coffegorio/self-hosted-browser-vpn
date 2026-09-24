@@ -10,6 +10,7 @@ from pathlib import Path
 
 def request(host: str, port: int, authorization: str = "") -> int:
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     with socket.create_connection(("127.0.0.1", port), timeout=10) as raw:
         with context.wrap_socket(raw, server_hostname=host) as connection:
             connection.settimeout(10)

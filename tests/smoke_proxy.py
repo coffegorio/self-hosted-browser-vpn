@@ -87,8 +87,10 @@ def free_port():
         return listener.getsockname()[1]
 
 
-def trusted_context(cert):
-    return ssl.create_default_context(cafile=str(cert))
+def client_context(cert=None):
+    context = ssl.create_default_context(cafile=str(cert) if cert is not None else None)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
 
 
 def connect_tls(port, context):
@@ -119,7 +121,7 @@ def request(port, cert, method, target, credentials=None):
         authorization +
         "Connection: close\r\n\r\n"
     ).encode("ascii")
-    with connect_tls(port, trusted_context(cert)) as stream:
+    with connect_tls(port, client_context(cert)) as stream:
         stream.sendall(wire)
         received = bytearray()
         while b"\r\n\r\n" not in received:
@@ -171,7 +173,7 @@ def wait_for_server(process, port, cert, log_path):
         if process.poll() is not None:
             fail("Server exited during startup:\n" + log_path.read_text(errors="replace"))
         try:
-            with connect_tls(port, trusted_context(cert)):
+            with connect_tls(port, client_context(cert)):
                 return
         except (OSError, ssl.SSLError):
             time.sleep(0.15)
@@ -220,7 +222,7 @@ def main():
                 wait_for_server(process, port, cert, log_path)
                 print("PASS TLS connection: temporary proxy certificate trusted explicitly")
                 try:
-                    with connect_tls(port, ssl.create_default_context()):
+                    with connect_tls(port, client_context()):
                         pass
                 except ssl.SSLCertVerificationError:
                     print("PASS TLS validation: untrusted certificate rejected")

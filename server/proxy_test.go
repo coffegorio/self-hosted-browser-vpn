@@ -16,8 +16,32 @@ import (
 	"time"
 )
 
+func testProxy(t *testing.T, user, password string) *proxyServer {
+	t.Helper()
+	p, err := newProxy(user, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestProxyAuthenticationUsesEphemeralKey(t *testing.T) {
+	first := testProxy(t, "browser", "secret")
+	second := testProxy(t, "browser", "secret")
+	if first.authKey == second.authKey || first.authTag == second.authTag {
+		t.Fatal("separate proxy instances must not use the same authentication verifier")
+	}
+	correct := "Basic " + base64.StdEncoding.EncodeToString([]byte("browser:secret"))
+	wrong := "Basic " + base64.StdEncoding.EncodeToString([]byte("browser:secreu"))
+	for _, proxy := range []*proxyServer{first, second} {
+		if !proxy.authorized(correct) || proxy.authorized(wrong) {
+			t.Fatal("proxy accepted an incorrect credential or rejected the correct one")
+		}
+	}
+}
+
 func TestProxyRequiresAuthenticationAndBlocksPrivateTarget(t *testing.T) {
-	p := newProxy("browser", "secret")
+	p := testProxy(t, "browser", "secret")
 	for _, test := range []struct {
 		name   string
 		auth   string
@@ -45,7 +69,7 @@ func TestProxyRequiresAuthenticationAndBlocksPrivateTarget(t *testing.T) {
 }
 
 func TestConnectRelaysBytesBufferedAfterHeaders(t *testing.T) {
-	p := newProxy("browser", "secret")
+	p := testProxy(t, "browser", "secret")
 	p.lookup = func(context.Context, string) ([]netip.Addr, error) {
 		return []netip.Addr{netip.MustParseAddr("2606:4700:4700::1111"), netip.MustParseAddr("1.1.1.1")}, nil
 	}
@@ -113,7 +137,7 @@ func TestConnectRelaysBytesBufferedAfterHeaders(t *testing.T) {
 }
 
 func TestHTTPForwardingPinsAddressAndStripsProxyCredentials(t *testing.T) {
-	p := newProxy("browser", "secret")
+	p := testProxy(t, "browser", "secret")
 	p.lookup = func(context.Context, string) ([]netip.Addr, error) {
 		return []netip.Addr{netip.MustParseAddr("2606:4700:4700::1111"), netip.MustParseAddr("1.1.1.1")}, nil
 	}
@@ -192,7 +216,7 @@ func TestPublicAddressPolicy(t *testing.T) {
 }
 
 func TestDestinationPinsVettedDNSAddress(t *testing.T) {
-	p := newProxy("browser", "secret")
+	p := testProxy(t, "browser", "secret")
 	p.lookup = func(_ context.Context, host string) ([]netip.Addr, error) {
 		if host != "example.org" {
 			t.Fatalf("unexpected host %q", host)
@@ -209,7 +233,7 @@ func TestDestinationPinsVettedDNSAddress(t *testing.T) {
 }
 
 func TestBlockedPort(t *testing.T) {
-	p := newProxy("browser", "secret")
+	p := testProxy(t, "browser", "secret")
 	_, err := p.destinations(context.Background(), "1.1.1.1:22", "")
 	if err == nil || !strings.Contains(err.Error(), "blocked") {
 		t.Fatalf("port 22 should be blocked, got %v", err)

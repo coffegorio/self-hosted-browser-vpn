@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -17,15 +18,15 @@ import (
 )
 
 type proxyServer struct {
-	authHash [sha256.Size]byte
-	lookup   func(context.Context, string) ([]netip.Addr, error)
-	dial     func(context.Context, string) (net.Conn, error)
+	authKey [sha256.Size]byte
+	authTag [sha256.Size]byte
+	lookup  func(context.Context, string) ([]netip.Addr, error)
+	dial    func(context.Context, string) (net.Conn, error)
 }
 
-func newProxy(user, password string) *proxyServer {
+func newProxy(user, password string) (*proxyServer, error) {
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
-	return &proxyServer{
-		authHash: sha256.Sum256([]byte(user + ":" + password)),
+	p := &proxyServer{
 		lookup: func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 		},
@@ -33,6 +34,17 @@ func newProxy(user, password string) *proxyServer {
 			return dialer.DialContext(ctx, "tcp", target)
 		},
 	}
+	if _, err := rand.Read(p.authKey[:]); err != nil {
+		return nil, fmt.Errorf("initialize proxy authentication: %w", err)
+	}
+	copy(p.authTag[:], p.authenticationTag([]byte(user+":"+password)))
+	return p, nil
+}
+
+func (p *proxyServer) authenticationTag(credentials []byte) []byte {
+	mac := hmac.New(sha256.New, p.authKey[:])
+	_, _ = mac.Write(credentials)
+	return mac.Sum(nil)
 }
 
 func (p *proxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -64,8 +76,7 @@ func (p *proxyServer) authorized(header string) bool {
 	if err != nil {
 		return false
 	}
-	sum := sha256.Sum256(decoded)
-	return subtle.ConstantTimeCompare(sum[:], p.authHash[:]) == 1
+	return hmac.Equal(p.authenticationTag(decoded), p.authTag[:])
 }
 
 var allowedPorts = map[int]bool{80: true, 443: true, 8080: true, 8443: true, 9443: true}
