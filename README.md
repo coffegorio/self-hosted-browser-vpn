@@ -1,5 +1,7 @@
 # Self-Hosted Browser VPN
 
+[![CI](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml/badge.svg)](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml)
+
 ![Self-Hosted Browser VPN: Chrome подключается к HTTPS-прокси на собственном VPS](assets/social-preview.png)
 
 **Ваш VPS — только для трафика Chrome.** Расширение включает собственный HTTPS-прокси в текущем профиле браузера. Остальные приложения компьютера продолжают пользоваться своим обычным подключением.
