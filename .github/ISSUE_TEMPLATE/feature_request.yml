@@ -1,0 +1,34 @@
+name: "Идея / Feature request"
+description: "Предложить улучшение для браузерного прокси"
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Расскажите, какую задачу решит идея. Проект — браузерный HTTPS-прокси, а не системный VPN. Не публикуйте данные своего сервера или ключ подключения.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какая проблема возникает
+      description: Опишите конкретную ситуацию и желаемый результат.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Текущий обходной путь или альтернативы
+    validations:
+      required: false
+  - type: textarea
+    id: impact
+    attributes:
+      label: Влияние на установку, маршрутизацию и безопасность
+      description: Если известно, отметьте новые разрешения Chrome, службы VPS или возможные прямые соединения.
+    validations:
+      required: false

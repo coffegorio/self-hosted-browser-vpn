@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Self-Hosted Browser VPN",
+  "version": "0.1.0",
+  "description": "Подключает трафик Chrome к вашему собственному HTTPS-прокси.",
+  "minimum_chrome_version": "102",
+  "permissions": ["proxy", "privacy", "storage", "webRequest", "webRequestAuthProvider"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Self-Hosted Browser VPN",
+    "default_popup": "popup.html"
+  }
+}

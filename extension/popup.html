@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Self-Hosted Browser VPN</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="mark" aria-hidden="true">↗</div>
+        <div>
+          <h1>Browser VPN</h1>
+          <p>Ваш сервер · только Chrome</p>
+        </div>
+      </header>
+
+      <section class="status-card" aria-live="polite">
+        <div id="status-dot" class="status-dot"></div>
+        <div>
+          <strong id="status-title">Загрузка…</strong>
+          <p id="status-description">Проверяем настройки Chrome.</p>
+        </div>
+      </section>
+
+      <p id="error" class="error" role="alert" hidden></p>
+
+      <section id="setup" hidden>
+        <h2>Добавить сервер</h2>
+        <p class="hint">Запустите установщик на своём VPS и вставьте полученный ключ подключения.</p>
+        <form id="import-form">
+          <label for="connection-key">Ключ подключения</label>
+          <textarea id="connection-key" rows="3" spellcheck="false" autocomplete="off" placeholder="shbvpn1:…" required></textarea>
+          <button type="submit" class="primary">Добавить сервер</button>
+        </form>
+        <p class="note">Ключ содержит пароль. Храните его как пароль от сервера.</p>
+      </section>
+
+      <section id="connected" hidden>
+        <div class="server-row"><span>Сервер</span><strong id="server-address"></strong></div>
+        <button id="connect-button" class="primary" type="button">Подключить</button>
+        <button id="test-button" class="secondary" type="button">Проверить внешний IP</button>
+        <p id="ip-result" class="ip-result" aria-live="polite"></p>
+        <p class="note">Проверка обращается к api.ipify.org через настройки Chrome.</p>
+
+        <details id="settings">
+          <summary>Исключения для сайтов</summary>
+          <p class="hint">Эти домены и их поддомены будут открываться напрямую. По одному домену в строке.</p>
+          <form id="exclusions-form">
+            <label for="exclusions">Домены</label>
+            <textarea id="exclusions" rows="4" spellcheck="false" placeholder="example.com"></textarea>
+            <button type="submit" class="secondary">Сохранить исключения</button>
+          </form>
+        </details>
+
+        <details id="replace">
+          <summary>Заменить сервер или удалить ключ</summary>
+          <form id="replace-form">
+            <label for="replacement-key">Новый ключ подключения</label>
+            <textarea id="replacement-key" rows="3" spellcheck="false" autocomplete="off" placeholder="shbvpn1:…" required></textarea>
+            <button type="submit" class="secondary">Заменить сервер</button>
+          </form>
+          <button id="forget-button" class="text-button" type="button">Удалить сохранённый ключ</button>
+        </details>
+      </section>
+
+      <footer>Прокси влияет на веб-трафик Chrome. На время подключения Chrome ограничивает прямой WebRTC-трафик; некоторые видеозвонки могут работать хуже. Системные приложения используют своё подключение.</footer>
+    </main>
+  </body>
+</html>

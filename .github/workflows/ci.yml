@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: server/go.mod
+          cache: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Test Go proxy with race detector
+        run: go test -race ./...
+        working-directory: server
+
+      - name: Vet Go proxy
+        run: go vet ./...
+        working-directory: server
+
+      - name: Test Chrome extension
+        run: node --test extension/tests/core.test.mjs
+
+      - name: Test PAC routing
+        run: node tests/extension_routing.mjs
+
+      - name: Check installer shell syntax
+        run: bash -n installer/*.sh
+
+      - name: Compile Python sources
+        run: python3 -m py_compile installer/*.py tests/smoke_proxy.py

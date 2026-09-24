@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "Уязвимость / Security report"
+    url: "https://github.com/coffegorio/self-hosted-browser-vpn/blob/main/SECURITY.md"
+    about: "Пожалуйста, не раскрывайте детали уязвимости в открытом issue."
+  - name: "Установка и решение проблем"
+    url: "https://github.com/coffegorio/self-hosted-browser-vpn/blob/main/docs/troubleshooting.md"
+    about: "Проверьте распространённые причины ошибок и команды диагностики."

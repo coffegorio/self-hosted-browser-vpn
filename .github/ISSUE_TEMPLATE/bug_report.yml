@@ -1,0 +1,63 @@
+name: "Ошибка / Bug report"
+description: "Сообщить о воспроизводимой ошибке расширения, прокси или установщика"
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за отчёт. Если проблема связана с уязвимостью, сначала прочитайте [SECURITY.md](https://github.com/coffegorio/self-hosted-browser-vpn/blob/main/SECURITY.md). Не вставляйте ключ `shbvpn1:…`, пароли, приватные ключи, личные IP-адреса или журналы без удаления секретов.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Компонент
+      options:
+        - Расширение Chrome
+        - HTTPS-прокси на VPS
+        - Установщик и сертификаты
+        - Документация
+        - Другое
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как воспроизвести
+      description: Пошагово, с тестовыми данными вместо реальных секретов.
+      placeholder: "1. Установил на Ubuntu ...\n2. Подключил Chrome ...\n3. Открыл ..."
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Что произошло
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидалось
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Окружение
+      description: Версии Chrome, Ubuntu и, если важно, Go; режим установки по IP или домену. Не указывайте сам IP или домен.
+      placeholder: "Chrome 128; Ubuntu 24.04; установка по IP, порт 8443"
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Диагностика без секретов
+      description: Сообщение расширения, сокращённый вывод службы или шаги из docs/troubleshooting.md. Удалите учётные данные, IP и домены перед отправкой.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: safe-report
+    attributes:
+      label: Проверка перед отправкой
+      options:
+        - label: Я удалил из отчёта ключи, пароли и другие чувствительные данные.
+          required: true

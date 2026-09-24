@@ -1,0 +1,32 @@
+# Local builds and test fixtures
+/server/shbvpn-server
+/server/server
+/tests/.tmp/
+*.test
+*.log
+
+# Connection credentials and TLS private material
+*.pem
+*.key
+*.p12
+*.pfx
+*.env
+.env
+.env.*
+*.credentials
+credentials
+connection-key.txt
+connection-key*
+*.secret
+*.secrets
+.ssh/
+id_rsa
+id_ecdsa
+id_ed25519
+__pycache__/
+*.pyc
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
