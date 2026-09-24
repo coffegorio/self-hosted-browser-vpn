@@ -93,3 +93,7 @@ More details: [usage](docs/usage.md), [security](docs/security.md), and [develop
 - Check the certificate, connection, and IP on your own network. Local tests do not prove that it works on every VPS or in every Chrome environment.
 
 Found a bug or want to suggest a feature? Open an issue with your Ubuntu and Chrome versions, the installation command **without the key**, the observed error, and relevant service output without secrets.
+
+## License
+
+[MIT](LICENSE) © 2026 coffegorio.
