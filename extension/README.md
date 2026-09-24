@@ -6,8 +6,9 @@ This directory is a plain Manifest V3 extension; there is no build step or exter
 
 1. Open `chrome://extensions` in Chrome, enable **Developer mode**, and choose **Load unpacked**.
 2. Select this `extension/` directory.
-3. Click the extension icon, paste the `shbvpn1:` key produced by the server installer, then click **Подключить**.
-4. Use **Проверить внешний IP** to make a request to `api.ipify.org` through the current Chrome proxy settings. Check the displayed address against the VPS's public egress address.
+3. Click the extension icon, paste the `shbvpn1:` key produced by the server installer, then click **Добавить сервер**. You can retrieve the key again on the VPS with `sudo shbvpn --show-key`.
+4. Click **Подключить**.
+5. Use **Проверить внешний IP** to make a request to `api.ipify.org` through the current Chrome proxy settings. Check the displayed address against the VPS's public egress address. Click **Отключить** to restore Chrome's previous route when finished.
 
 The connection key is `shbvpn1:` followed by unpadded base64url of UTF-8 JSON with exactly `v`, `host`, `port`, `username`, and `password` fields. `v` is `1`; `host` is an ASCII FQDN or IPv4 address without a scheme; `port` is an integer. The extension stores the parsed credentials in `chrome.storage.local` and limits access to trusted extension contexts. Chrome profile files are not encrypted by this extension, so treat the key and local browser profile as secrets.
 
