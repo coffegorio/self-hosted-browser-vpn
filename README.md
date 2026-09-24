@@ -1,5 +1,7 @@
 # Self-Hosted Browser VPN
 
+**Русский** · [English](README.en.md)
+
 [![CI](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml/badge.svg)](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml)
 
 ![Self-Hosted Browser VPN: Chrome подключается к HTTPS-прокси на собственном VPS](assets/social-preview.png)
