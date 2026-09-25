@@ -1,5 +1,5 @@
 name: "Ошибка / Bug report"
-description: "Сообщить о воспроизводимой ошибке расширения, прокси или установщика"
+description: "Сообщить о воспроизводимой ошибке расширения, прокси, контейнеров или установщика"
 title: "[Bug]: "
 body:
   - type: markdown
@@ -12,8 +12,9 @@ body:
       label: Компонент
       options:
         - Расширение Chrome
-        - HTTPS-прокси на VPS
-        - Установщик и сертификаты
+        - HTTPS-прокси
+        - Docker Compose и контейнеры
+        - Установщик Ubuntu и сертификаты
         - Документация
         - Другое
     validations:
@@ -23,7 +24,7 @@ body:
     attributes:
       label: Как воспроизвести
       description: Пошагово, с тестовыми данными вместо реальных секретов.
-      placeholder: "1. Установил на Ubuntu ...\n2. Подключил Chrome ...\n3. Открыл ..."
+      placeholder: "1. Установил через Docker Compose / на Ubuntu ...\n2. Подключил Chrome ...\n3. Открыл ..."
     validations:
       required: true
   - type: textarea
@@ -42,8 +43,8 @@ body:
     id: environment
     attributes:
       label: Окружение
-      description: Версии Chrome, Ubuntu и, если важно, Go; режим установки по IP или домену. Не указывайте сам IP или домен.
-      placeholder: "Chrome 128; Ubuntu 24.04; установка по IP, порт 8443"
+      description: Версии Chrome, ОС хоста, Docker Engine / Compose или Ubuntu; версия / коммит проекта, IP- или доменный режим. Не указывайте сам IP или домен.
+      placeholder: "Chrome ...; Ubuntu 24.04; Docker ...; Compose ...; коммит ...; установка по IP, порт 8443"
     validations:
       required: true
   - type: textarea

@@ -1,0 +1,82 @@
+name: shbvpn
+
+services:
+  acme:
+    image: shbvpn-proxy:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.proxy
+    command: ["acme"]
+    ports:
+      - "80:8080"
+    volumes:
+      - acme_webroot:/acme:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "/app/run_server.py", "probe-acme"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  cert-manager:
+    image: shbvpn-cert-manager:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.certbot
+    environment:
+      SHBVPN_KIND: ${SHBVPN_KIND:?set SHBVPN_KIND in settings.env}
+      SHBVPN_HOST: ${SHBVPN_HOST:?set SHBVPN_HOST in settings.env}
+      SHBVPN_PORT: ${SHBVPN_PORT:-443}
+      SHBVPN_EMAIL: ${SHBVPN_EMAIL:-}
+      SHBVPN_SELF_ADDRESSES: ${SHBVPN_SELF_ADDRESSES:-}
+      SHBVPN_CLEAR_SELF_ADDRESSES: ${SHBVPN_CLEAR_SELF_ADDRESSES:-0}
+    volumes:
+      - acme_webroot:/acme
+      - certbot_state:/certbot-state
+      - runtime:/runtime
+    depends_on:
+      acme:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "/app/manager.py", "health"]
+      interval: 1m
+      timeout: 30s
+      retries: 2
+      start_period: 3m
+
+  proxy:
+    image: shbvpn-proxy:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.proxy
+    command: ["proxy"]
+    ports:
+      - "${SHBVPN_PORT:-443}:8443"
+    volumes:
+      - runtime:/runtime:ro
+    depends_on:
+      cert-manager:
+        condition: service_started
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "/app/healthcheck.py", "--config-dir", "/runtime", "--connect-port", "8443", "--tls-cert", "/runtime/tls/current/fullchain.pem"]
+      interval: 1m
+      timeout: 30s
+      retries: 2
+      start_period: 3m
+
+volumes:
+  acme_webroot:
+  certbot_state:
+  runtime:

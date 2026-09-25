@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
 """Print an extension import key without putting the proxy password in argv."""
 
+import argparse
 import base64
 import json
 from pathlib import Path
+from typing import List, Optional
 
-CONFIG = Path("/etc/shbvpn/config.json")
-CREDENTIALS = Path("/etc/shbvpn/credentials")
+DEFAULT_CONFIG_DIR = Path("/etc/shbvpn")
 
 
-def main() -> None:
-    config = json.loads(CONFIG.read_text(encoding="utf-8"))
-    username, password = CREDENTIALS.read_text(encoding="utf-8").strip().split(":", 1)
+def main(argv: Optional[List[str]] = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config-dir", type=Path, default=DEFAULT_CONFIG_DIR,
+        help="directory containing config.json and credentials (default: /etc/shbvpn)",
+    )
+    args = parser.parse_args(argv)
+    config_dir = args.config_dir.expanduser()
+
+    config = json.loads((config_dir / "config.json").read_text(encoding="utf-8"))
+    username, password = (config_dir / "credentials").read_text(encoding="utf-8").strip().split(":", 1)
     payload = {
         "v": 1,
         "host": config["host"],

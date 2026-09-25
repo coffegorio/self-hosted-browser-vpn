@@ -33,7 +33,8 @@ function render(state) {
   if (connected) {
     $('server-address').textContent = state.server || '—';
     $('connect-button').textContent = state.enabled ? 'Отключить' : 'Подключить';
-    $('test-button').disabled = state.state !== 'active';
+    $('test-button').disabled = state.state !== 'active' && state.canRetryIp !== true;
+    $('test-button').textContent = state.canRetryIp === true ? 'Повторить проверку IP' : 'Проверить внешний IP';
     if (document.activeElement !== $('exclusions')) {
       $('exclusions').value = state.exclusions.join('\n');
     }
@@ -51,7 +52,7 @@ async function run(task) {
     try { render(await request('GET_STATE')); } catch { /* Keep the last view. */ }
   } finally {
     buttons.forEach((button) => { button.disabled = false; });
-    if (current) $('test-button').disabled = current.state !== 'active';
+    if (current) $('test-button').disabled = current.state !== 'active' && current.canRetryIp !== true;
   }
 }
 

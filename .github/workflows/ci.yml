@@ -33,14 +33,39 @@ jobs:
         run: go vet ./...
         working-directory: server
 
+      - name: Cross-compile Go proxy
+        working-directory: server
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build -o "$RUNNER_TEMP/shbvpn-${target%/*}-${target#*/}" .
+          done
+
       - name: Test Chrome extension
-        run: node --test extension/tests/core.test.mjs
+        run: npm test
+        working-directory: extension
 
       - name: Test PAC routing
         run: node tests/extension_routing.mjs
 
       - name: Check installer shell syntax
-        run: bash -n installer/*.sh
+        run: |
+          for script in installer/*.sh; do
+            bash -n "$script" || exit
+          done
 
       - name: Compile Python sources
-        run: python3 -m py_compile installer/*.py tests/smoke_proxy.py
+        run: python3 -m py_compile installer/*.py deploy/*.py tests/*.py
+
+      - name: Test Python installers and container startup
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Validate portable Compose configuration
+        run: docker compose --env-file deploy/settings.env.example -f deploy/compose.yaml config --quiet
+
+      - name: Build portable server and certificate images
+        run: docker compose --env-file deploy/settings.env.example -f deploy/compose.yaml build
+
+      - name: Check built image entrypoints
+        run: |
+          docker run --rm --entrypoint /app/shbvpn-proxy shbvpn-proxy:local --help
+          docker run --rm shbvpn-cert-manager:local --help

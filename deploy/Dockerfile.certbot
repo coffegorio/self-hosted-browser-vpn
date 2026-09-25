@@ -1,0 +1,8 @@
+FROM certbot/certbot:v5.8.0
+
+ENV PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+COPY deploy/manager.py /app/manager.py
+COPY installer/export-key.py installer/healthcheck.py installer/public_ip.py /app/installer/
+ENTRYPOINT ["python3", "/app/manager.py"]
+CMD ["run"]

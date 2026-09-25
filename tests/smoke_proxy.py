@@ -213,7 +213,8 @@ def main():
             process = subprocess.Popen(
                 [str(binary), "--listen", "127.0.0.1:{}".format(port),
                  "--cert", str(cert), "--key", str(key),
-                 "--credentials", str(credentials_file)],
+                 "--credentials", str(credentials_file),
+                 "--self-host", "1.1.1.1"],
                 cwd=ROOT,
                 stdout=log,
                 stderr=subprocess.STDOUT,
@@ -237,6 +238,7 @@ def main():
                 check_status("private IPv4", port, cert, "CONNECT", "10.0.0.1:443", credentials, 403)
                 check_status("cloud metadata", port, cert, "CONNECT", "169.254.169.254:80", credentials, 403)
                 check_status("cloud metadata over HTTP", port, cert, "GET", "http://169.254.169.254/latest/meta-data/", credentials, 403)
+                check_status("proxy's own public address", port, cert, "CONNECT", "1.1.1.1:443", credentials, 403)
                 check_status("non-web port", port, cert, "CONNECT", "example.com:25", credentials, 403)
                 check_status("authenticated public CONNECT", port, cert, "CONNECT", args.public_target, credentials, 200)
                 check_https_fetch(port, cert, args.public_target, credentials)
