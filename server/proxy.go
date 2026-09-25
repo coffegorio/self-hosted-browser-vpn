@@ -14,19 +14,27 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type proxyServer struct {
-	authKey [sha256.Size]byte
-	authTag [sha256.Size]byte
-	lookup  func(context.Context, string) ([]netip.Addr, error)
-	dial    func(context.Context, string) (net.Conn, error)
+	authKey        [sha256.Size]byte
+	authTag        [sha256.Size]byte
+	selfHost       string
+	extraSelf      []netip.Addr
+	selfMu         sync.Mutex
+	selfResolved   map[netip.Addr]struct{}
+	selfRetryAfter time.Time
+	localAddresses func() ([]netip.Addr, error)
+	lookup         func(context.Context, string) ([]netip.Addr, error)
+	dial           func(context.Context, string) (net.Conn, error)
 }
 
 func newProxy(user, password string) (*proxyServer, error) {
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	p := &proxyServer{
+		localAddresses: interfaceAddresses,
 		lookup: func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 		},
@@ -53,6 +61,13 @@ func (p *proxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(http.StatusProxyAuthRequired)
+		return
+	}
+
+	// The server bounds unauthenticated body reads, including net/http's cleanup.
+	// Once authenticated, preserve long uploads and full-duplex tunnels.
+	if err := http.NewResponseController(w).SetReadDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		http.Error(w, "could not prepare authenticated connection", http.StatusInternalServerError)
 		return
 	}
 
@@ -145,14 +160,104 @@ func publicAddress(addr netip.Addr) bool {
 }
 
 var errForbidden = errors.New("destination is not a public web address")
+var errSelfUnavailable = errors.New("proxy address guard is unavailable")
+
+func interfaceAddresses() ([]netip.Addr, error) {
+	interfaces, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	var addresses []netip.Addr
+	for _, entry := range interfaces {
+		var ip net.IP
+		switch value := entry.(type) {
+		case *net.IPNet:
+			ip = value.IP
+		case *net.IPAddr:
+			ip = value.IP
+		}
+		if address, ok := netip.AddrFromSlice(ip); ok {
+			addresses = append(addresses, address.Unmap())
+		}
+	}
+	return addresses, nil
+}
+
+func (p *proxyServer) selfAddresses(ctx context.Context) (map[netip.Addr]struct{}, error) {
+	self := make(map[netip.Addr]struct{})
+	for _, address := range p.extraSelf {
+		self[address.Unmap()] = struct{}{}
+	}
+	if p.selfHost != "" {
+		if address, err := netip.ParseAddr(p.selfHost); err == nil {
+			self[address.Unmap()] = struct{}{}
+		} else {
+			p.selfMu.Lock()
+			shouldLookup := len(p.selfResolved) == 0 || !time.Now().Before(p.selfRetryAfter)
+			p.selfMu.Unlock()
+			var lookupErr error
+			if shouldLookup {
+				addresses, err := p.lookup(ctx, p.selfHost)
+				lookupErr = err
+				p.selfMu.Lock()
+				if err == nil {
+					if p.selfResolved == nil {
+						p.selfResolved = make(map[netip.Addr]struct{})
+					}
+					for _, address := range addresses {
+						p.selfResolved[address.Unmap()] = struct{}{}
+					}
+					p.selfRetryAfter = time.Time{}
+				} else if len(p.selfResolved) > 0 && ctx.Err() == nil {
+					p.selfRetryAfter = time.Now().Add(10 * time.Second)
+				}
+				p.selfMu.Unlock()
+			}
+			p.selfMu.Lock()
+			for address := range p.selfResolved {
+				self[address] = struct{}{}
+			}
+			hasResolved := len(p.selfResolved) > 0
+			p.selfMu.Unlock()
+			if lookupErr != nil && !hasResolved {
+				return nil, fmt.Errorf("%w: resolve proxy host: %v", errSelfUnavailable, lookupErr)
+			}
+		}
+		knownPublic := false
+		for address := range self {
+			if publicAddress(address) {
+				knownPublic = true
+				break
+			}
+		}
+		if !knownPublic {
+			return nil, fmt.Errorf("%w: no public proxy address", errSelfUnavailable)
+		}
+	}
+	addresses, err := p.localAddresses()
+	if err != nil {
+		return nil, fmt.Errorf("%w: inspect local addresses: %v", errSelfUnavailable, err)
+	}
+	for _, address := range addresses {
+		self[address.Unmap()] = struct{}{}
+	}
+	return self, nil
+}
 
 func (p *proxyServer) destinations(ctx context.Context, authority, defaultPort string) ([]string, error) {
 	host, port, err := splitTarget(authority, defaultPort)
 	if err != nil {
 		return nil, err
 	}
+	if p.selfHost != "" && strings.EqualFold(strings.TrimSuffix(host, "."), strings.TrimSuffix(p.selfHost, ".")) {
+		return nil, errForbidden
+	}
+	self, err := p.selfAddresses(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if literal, parseErr := netip.ParseAddr(host); parseErr == nil {
-		if !publicAddress(literal) {
+		if !publicAddress(literal) || isSelfAddress(self, literal) {
 			return nil, errForbidden
 		}
 		return []string{net.JoinHostPort(literal.Unmap().String(), port)}, nil
@@ -163,7 +268,7 @@ func (p *proxyServer) destinations(ctx context.Context, authority, defaultPort s
 	}
 	var targets []string
 	for _, addr := range addrs {
-		if publicAddress(addr) {
+		if publicAddress(addr) && !isSelfAddress(self, addr) {
 			targets = append(targets, net.JoinHostPort(addr.Unmap().String(), port))
 		}
 	}
@@ -171,6 +276,11 @@ func (p *proxyServer) destinations(ctx context.Context, authority, defaultPort s
 		return nil, errForbidden
 	}
 	return targets, nil
+}
+
+func isSelfAddress(self map[netip.Addr]struct{}, address netip.Addr) bool {
+	_, found := self[address.Unmap()]
+	return found
 }
 
 func (p *proxyServer) dialDestinations(ctx context.Context, targets []string) (net.Conn, error) {
@@ -242,7 +352,13 @@ func (p *proxyServer) forwardHTTP(w http.ResponseWriter, r *http.Request) {
 	upstream := r.Clone(r.Context())
 	upstream.RequestURI = ""
 	upstream.Host = r.URL.Host
+	upgrade := upstream.Header.Get("Upgrade")
+	wantsUpgrade := upgrade != "" && headerHasToken(upstream.Header, "Connection", "Upgrade")
 	removeHopHeaders(upstream.Header)
+	if wantsUpgrade {
+		upstream.Header.Set("Connection", "Upgrade")
+		upstream.Header.Set("Upgrade", upgrade)
+	}
 	transport := &http.Transport{
 		Proxy:                 nil,
 		DisableKeepAlives:     true,
@@ -258,6 +374,14 @@ func (p *proxyServer) forwardHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusSwitchingProtocols {
+		if !wantsUpgrade || !headerHasToken(response.Header, "Connection", "Upgrade") || response.Header.Get("Upgrade") == "" {
+			http.Error(w, "invalid upstream protocol switch", http.StatusBadGateway)
+			return
+		}
+		p.relayUpgrade(w, response)
+		return
+	}
 	removeHopHeaders(response.Header)
 	for name, values := range response.Header {
 		for _, value := range values {
@@ -265,7 +389,76 @@ func (p *proxyServer) forwardHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+		_, err = io.Copy(flushingWriter{Writer: w, Flusher: flusher}, response.Body)
+	} else {
+		_, err = io.Copy(w, response.Body)
+	}
+	if err != nil {
+		// Headers have already been sent. Abort instead of completing a truncated response.
+		panic(http.ErrAbortHandler)
+	}
+}
+
+type flushingWriter struct {
+	io.Writer
+	http.Flusher
+}
+
+func (w flushingWriter) Write(data []byte) (int, error) {
+	n, err := w.Writer.Write(data)
+	if n > 0 {
+		w.Flusher.Flush()
+	}
+	return n, err
+}
+
+func (p *proxyServer) relayUpgrade(w http.ResponseWriter, response *http.Response) {
+	upstream, ok := response.Body.(io.ReadWriteCloser)
+	if !ok {
+		http.Error(w, "upstream protocol switch unavailable", http.StatusBadGateway)
+		return
+	}
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "tunneling unavailable", http.StatusInternalServerError)
+		return
+	}
+	client, buffered, err := hijacker.Hijack()
+	if err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(client, "HTTP/1.1 %s\r\n", response.Status); err != nil {
+		_ = client.Close()
+		return
+	}
+	if err := response.Header.Write(client); err != nil {
+		_ = client.Close()
+		return
+	}
+	if _, err := io.WriteString(client, "\r\n"); err != nil {
+		_ = client.Close()
+		return
+	}
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(upstream, buffered); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(client, upstream); done <- struct{}{} }()
+	<-done
+	_ = client.Close()
+	_ = upstream.Close()
+	<-done
+}
+
+func headerHasToken(h http.Header, name, token string) bool {
+	for _, value := range h.Values(name) {
+		for _, field := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(field), token) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func removeHopHeaders(h http.Header) {
@@ -283,6 +476,10 @@ func removeHopHeaders(h http.Header) {
 }
 
 func writeDestinationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errSelfUnavailable) {
+		http.Error(w, "proxy address guard is unavailable", http.StatusBadGateway)
+		return
+	}
 	if errors.Is(err, errForbidden) || strings.Contains(err.Error(), "blocked") {
 		http.Error(w, "destination is blocked", http.StatusForbidden)
 		return

@@ -24,6 +24,8 @@ usage() {
 Usage:
   sudo bash installer/install.sh --domain proxy.example.com [--port 443] [--email you@example.com]
   sudo bash installer/install.sh --ip PUBLIC_IPV4 [--port 443] [--email you@example.com]
+  Add --self-address PUBLIC_IP for each extra public ingress address on the VPS.
+  On an existing installation, --clear-self-addresses removes saved extra addresses.
   sudo bash installer/install.sh --show-key
   sudo bash installer/install.sh --rotate
   sudo bash installer/install.sh --uninstall
@@ -72,6 +74,8 @@ HOST=
 PORT=443
 EMAIL=
 PORT_SET=0
+SELF_ADDRESSES=()
+CLEAR_SELF_ADDRESSES=0
 while (($#)); do
   case "$1" in
     --domain|--ip)
@@ -84,6 +88,10 @@ while (($#)); do
     --email)
       (($# >= 2)) || die "--email needs a value"
       EMAIL=$2; shift 2 ;;
+    --self-address)
+      (($# >= 2)) || die "--self-address needs a value"
+      SELF_ADDRESSES+=("$2"); shift 2 ;;
+    --clear-self-addresses) CLEAR_SELF_ADDRESSES=1; shift ;;
     --show-key) MODE=show-key; shift ;;
     --rotate) MODE=rotate; shift ;;
     --uninstall) MODE=uninstall; shift ;;
@@ -95,7 +103,7 @@ done
 [[ $EUID -eq 0 ]] || die "run with sudo"
 
 if [[ $MODE != install ]]; then
-  [[ -z $KIND && $PORT_SET -eq 0 && -z $EMAIL ]] || die "management commands do not take install options"
+  [[ -z $KIND && $PORT_SET -eq 0 && -z $EMAIL && ${#SELF_ADDRESSES[@]} -eq 0 && $CLEAR_SELF_ADDRESSES -eq 0 ]] || die "management commands do not take install options"
   [[ -f $CONFIG_FILE ]] || die "installation not found"
 fi
 
@@ -155,7 +163,9 @@ if [[ $MODE == uninstall ]]; then
   else
     select_certbot_backend snap
   fi
-  systemctl disable --now shbvpn-proxy.service shbvpn-acme.service shbvpn-renew.timer 2>/dev/null || true
+  systemctl disable --now shbvpn-renew.timer 2>/dev/null || true
+  systemctl stop shbvpn-renew.service 2>/dev/null || true
+  systemctl disable --now shbvpn-proxy.service shbvpn-acme.service 2>/dev/null || true
   rm -f /etc/systemd/system/shbvpn-proxy.service /etc/systemd/system/shbvpn-acme.service /etc/systemd/system/shbvpn-renew.service /etc/systemd/system/shbvpn-renew.timer
   systemctl daemon-reload
   rm -f "$HOOK" "$PROXY_BIN"
@@ -187,11 +197,14 @@ else
 fi
 select_certbot_backend "$CERTBOT_BACKEND"
 
-python3 - "$KIND" "$HOST" "$PORT" "$EMAIL" <<'PY' || exit 1
+python3 - "$ROOT_DIR/installer" "$KIND" "$HOST" "$PORT" "$EMAIL" "${SELF_ADDRESSES[@]}" <<'PY' || exit 1
 import ipaddress
 import re
 import sys
-kind, host, port, email = sys.argv[1:]
+sys.path.insert(0, sys.argv[1])
+from public_ip import is_public_ip
+
+kind, host, port, email = sys.argv[2:6]
 if not port.isdecimal() or not (1 <= int(port) <= 65535) or int(port) == 80:
     sys.exit("Error: proxy port must be 1..65535 except 80")
 if kind == "ip":
@@ -199,7 +212,7 @@ if kind == "ip":
         ip = ipaddress.IPv4Address(host)
     except ipaddress.AddressValueError:
         sys.exit("Error: --ip requires a public IPv4 address")
-    if not ip.is_global:
+    if not is_public_ip(host):
         sys.exit("Error: --ip requires a public IPv4 address")
 elif kind == "domain":
     try:
@@ -217,30 +230,57 @@ else:
     sys.exit("Error: unknown host kind")
 if email and (len(email) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email)):
     sys.exit("Error: invalid email address")
+addresses = sys.argv[6:]
+for address in addresses:
+    if not is_public_ip(address):
+        sys.exit("Error: --self-address requires a public IP address")
+if len(set(addresses)) != len(addresses):
+    sys.exit("Error: duplicate --self-address")
 PY
 
 if [[ -f $CONFIG_FILE ]]; then
-  python3 - "$CONFIG_FILE" "$KIND" "$HOST" "$PORT" <<'PY' || die "configuration changed; uninstall before changing host or port"
+  python3 - "$ROOT_DIR/installer" "$CONFIG_FILE" "$KIND" "$HOST" "$PORT" <<'PY' || die "configuration changed; uninstall before changing host or port"
 import json, sys
-config = json.load(open(sys.argv[1], encoding="utf-8"))
-if (config["kind"], config["host"], str(config["port"])) != tuple(sys.argv[2:]):
+sys.path.insert(0, sys.argv[1])
+from public_ip import is_public_ip
+
+config = json.load(open(sys.argv[2], encoding="utf-8"))
+if (config["kind"], config["host"], str(config["port"])) != tuple(sys.argv[3:]):
     sys.exit(1)
+addresses = config.get("self_addresses", [])
+if not isinstance(addresses, list) or any(not is_public_ip(address) for address in addresses):
+    sys.exit("Error: stored self_addresses are invalid")
 PY
+  if ((${#SELF_ADDRESSES[@]} == 0 && CLEAR_SELF_ADDRESSES == 0)); then
+    mapfile -t SELF_ADDRESSES < <(python3 - "$CONFIG_FILE" <<'PY'
+import json, sys
+for address in json.load(open(sys.argv[1], encoding="utf-8")).get("self_addresses", []):
+    print(address)
+PY
+)
+  fi
 else
   # Names are deliberately fixed. Never take over another service's user or lineage.
-  if id shbvpn >/dev/null 2>&1 || [[ -e $LINEAGE || -e /etc/letsencrypt/renewal/shbvpn.conf || -e $PROXY_BIN || -e $MANAGE_BIN || -e $HOOK || -e $INSTALLED_ROOT || -e /etc/systemd/system/shbvpn-proxy.service || -e /etc/systemd/system/shbvpn-acme.service || -e /etc/systemd/system/shbvpn-renew.timer ]]; then
+  if id shbvpn >/dev/null 2>&1 || [[ -e $LINEAGE || -e /etc/letsencrypt/renewal/shbvpn.conf || -e $PROXY_BIN || -e $MANAGE_BIN || -e $HOOK || -e $INSTALLED_ROOT || -e /etc/systemd/system/shbvpn-proxy.service || -e /etc/systemd/system/shbvpn-acme.service || -e /etc/systemd/system/shbvpn-renew.service || -e /etc/systemd/system/shbvpn-renew.timer ]]; then
     die "existing SHB VPN resources conflict with a fresh installation"
   fi
   python3 - "$PORT" <<'PY' || die "ports 80 and $PORT must be free before installation"
 import socket
 import sys
+import errno
 
 for port in (80, int(sys.argv[1])):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+    for family, host in ((socket.AF_INET, "0.0.0.0"), (socket.AF_INET6, "::")):
         try:
-            listener.bind(("0.0.0.0", port))
+            with socket.socket(family, socket.SOCK_STREAM) as listener:
+                if family == socket.AF_INET6:
+                    listener.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                listener.bind((host, port))
         except OSError as error:
-            sys.exit(f"Error: TCP port {port} is unavailable: {error}")
+            if family == socket.AF_INET6 and error.errno in (errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL):
+                # IPv6 is disabled; Go will use IPv4 only.
+                continue
+            sys.exit(f"Error: TCP port {port} is unavailable on {host}: {error}")
 PY
 fi
 
@@ -278,10 +318,10 @@ install -d -o root -g shbvpn -m 0750 "$CONFIG_DIR" "$CONFIG_DIR/tls"
 install -d -o root -g root -m 0755 "$ACME_DIR" "$ACME_DIR/.well-known" "$ACME_DIR/.well-known/acme-challenge"
 
 if [[ ! -f $CONFIG_FILE ]]; then
-  python3 - "$KIND" "$HOST" "$PORT" > "$CONFIG_FILE" <<'PY'
+  python3 - "$KIND" "$HOST" "$PORT" "${SELF_ADDRESSES[@]}" > "$CONFIG_FILE" <<'PY'
 import json, sys
-kind, host, port = sys.argv[1:]
-json.dump({"kind": kind, "host": host, "port": int(port)}, sys.stdout, separators=(",", ":"))
+kind, host, port = sys.argv[1:4]
+json.dump({"kind": kind, "host": host, "port": int(port), "self_addresses": sys.argv[4:]}, sys.stdout, separators=(",", ":"))
 sys.stdout.write("\n")
 PY
   chmod 0600 "$CONFIG_FILE"
@@ -306,9 +346,135 @@ if [[ $KIND == ip ]]; then
 fi
 if [[ ! -f $CREDS_FILE ]]; then make_credentials; fi
 
+UPDATING=0
+UPDATE_READY=0
+UPDATE_COMPLETE=0
+UPDATE_BACKUP=
+TEMP_BIN=
+UPDATE_PATHS=(
+  "$PROXY_BIN" "$MANAGE_BIN" "$HOOK"
+  "$CONFIG_FILE"
+  "$CONFIG_DIR/tls/fullchain.pem" "$CONFIG_DIR/tls/privkey.pem"
+  /etc/systemd/system/shbvpn-acme.service
+  /etc/systemd/system/shbvpn-proxy.service
+  /etc/systemd/system/shbvpn-renew.service
+  /etc/systemd/system/shbvpn-renew.timer
+)
+if [[ $ROOT_DIR != "$INSTALLED_ROOT" ]]; then
+  UPDATE_PATHS+=("$INSTALLED_ROOT/server" "$INSTALLED_ROOT/installer")
+fi
+
+restore_update_path() {
+  local path=$1 saved=$UPDATE_BACKUP$1
+  if [[ $path == "$PROXY_BIN" && -e $saved ]]; then
+    cp -a "$saved" "$path.rollback" || return 1
+    mv -f "$path.rollback" "$path" || return 1
+    return 0
+  fi
+  rm -rf "$path" || return 1
+  if [[ -e $saved || -L $saved ]]; then
+    mkdir -p "$(dirname "$path")" || return 1
+    cp -a "$saved" "$path" || return 1
+  fi
+}
+
+restore_unit_state() {
+  local unit=$1
+  if [[ ${UPDATE_ENABLED[$unit]} == 1 ]]; then
+    systemctl enable "$unit" >/dev/null || return 1
+  else
+    systemctl disable "$unit" >/dev/null || return 1
+  fi
+  if [[ ${UPDATE_ACTIVE[$unit]} == 1 ]]; then
+    systemctl restart "$unit" || return 1
+  else
+    systemctl stop "$unit" || return 1
+  fi
+}
+
+refresh_rollback_tls() {
+  [[ -r $LINEAGE/fullchain.pem && -r $LINEAGE/privkey.pem ]] || return 1
+  if cmp -s "$LINEAGE/fullchain.pem" "$CONFIG_DIR/tls/fullchain.pem" && cmp -s "$LINEAGE/privkey.pem" "$CONFIG_DIR/tls/privkey.pem"; then
+    return 0
+  fi
+  install -o root -g shbvpn -m 0640 "$LINEAGE/fullchain.pem" "$CONFIG_DIR/tls/fullchain.pem.new" || return 1
+  install -o root -g shbvpn -m 0640 "$LINEAGE/privkey.pem" "$CONFIG_DIR/tls/privkey.pem.new" || return 1
+  mv -f "$CONFIG_DIR/tls/fullchain.pem.new" "$CONFIG_DIR/tls/fullchain.pem" || return 1
+  mv -f "$CONFIG_DIR/tls/privkey.pem.new" "$CONFIG_DIR/tls/privkey.pem" || return 1
+}
+
+cleanup_install() {
+  local status=$? path unit rollback_failed=0 keep_backup=0
+  trap - EXIT
+  set +e
+  [[ -z $TEMP_BIN ]] || rm -f "$TEMP_BIN"
+  rm -f "$PROXY_BIN.new"
+  rm -f "$CONFIG_FILE.new"
+  if [[ $status -ne 0 && $UPDATING -eq 1 && $UPDATE_READY -eq 1 && $UPDATE_COMPLETE -eq 0 ]]; then
+    echo "Installation failed; restoring the previous SHB VPN installation" >&2
+    for path in "${UPDATE_PATHS[@]}"; do
+      restore_update_path "$path" || { echo "Could not restore $path" >&2; rollback_failed=1; }
+    done
+    if ! refresh_rollback_tls; then
+      echo "Could not deploy the current certificate lineage during rollback" >&2
+      restore_update_path "$CONFIG_DIR/tls/fullchain.pem" || true
+      restore_update_path "$CONFIG_DIR/tls/privkey.pem" || true
+      rollback_failed=1
+    fi
+    rm -f "$CONFIG_DIR/tls/fullchain.pem.new" "$CONFIG_DIR/tls/privkey.pem.new"
+    systemctl daemon-reload || rollback_failed=1
+    for unit in shbvpn-acme.service shbvpn-proxy.service shbvpn-renew.timer; do
+      restore_unit_state "$unit" || { echo "Could not restore $unit" >&2; rollback_failed=1; }
+    done
+    if [[ ${UPDATE_ACTIVE[shbvpn-proxy.service]} == 1 ]]; then
+      python3 "$INSTALLED_ROOT/installer/healthcheck.py" || rollback_failed=1
+    fi
+    if [[ $rollback_failed -eq 1 ]]; then
+      keep_backup=1
+      echo "Rollback was incomplete; snapshot retained at $UPDATE_BACKUP" >&2
+      echo "Inspect journalctl -u shbvpn-proxy.service -u shbvpn-acme.service" >&2
+    else
+      echo "Previous installation restored" >&2
+    fi
+  fi
+  if [[ -n $UPDATE_BACKUP && $keep_backup -eq 0 ]]; then rm -rf "$UPDATE_BACKUP"; fi
+  exit "$status"
+}
+
+trap cleanup_install EXIT
 TEMP_BIN=$(mktemp)
-trap 'rm -f "$TEMP_BIN"' EXIT
 (cd "$ROOT_DIR/server" && /usr/bin/go build -trimpath -o "$TEMP_BIN" .)
+
+if [[ -e $PROXY_BIN ]]; then
+  UPDATING=1
+  UPDATE_BACKUP=$(mktemp -d "$CONFIG_DIR/update-backup.XXXXXX")
+  for path in "${UPDATE_PATHS[@]}"; do
+    if [[ -e $path || -L $path ]]; then
+      mkdir -p "$UPDATE_BACKUP$(dirname "$path")"
+      cp -a "$path" "$UPDATE_BACKUP$path"
+    fi
+  done
+  declare -A UPDATE_ACTIVE UPDATE_ENABLED
+  for unit in shbvpn-acme.service shbvpn-proxy.service shbvpn-renew.timer; do
+    UPDATE_ACTIVE[$unit]=0
+    UPDATE_ENABLED[$unit]=0
+    if systemctl is-active --quiet "$unit"; then UPDATE_ACTIVE[$unit]=1; fi
+    if systemctl is-enabled --quiet "$unit"; then UPDATE_ENABLED[$unit]=1; fi
+  done
+  UPDATE_READY=1
+fi
+
+python3 - "$CONFIG_FILE" "${SELF_ADDRESSES[@]}" > "$CONFIG_FILE.new" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    config = json.load(source)
+config["self_addresses"] = sys.argv[2:]
+json.dump(config, sys.stdout, separators=(",", ":"))
+sys.stdout.write("\n")
+PY
+chmod 0600 "$CONFIG_FILE.new"
+mv -f "$CONFIG_FILE.new" "$CONFIG_FILE"
+
 install -o root -g root -m 0755 "$TEMP_BIN" "$PROXY_BIN.new"
 mv -f "$PROXY_BIN.new" "$PROXY_BIN"
 if [[ $ROOT_DIR != "$INSTALLED_ROOT" ]]; then
@@ -323,6 +489,11 @@ EOF
 chmod 0755 "$MANAGE_BIN"
 install -d -o root -g root -m 0755 "$(dirname "$HOOK")"
 install -o root -g root -m 0755 "$ROOT_DIR/installer/deploy-hook.sh" "$HOOK"
+
+SELF_ADDRESS_OPTIONS=
+for address in "${SELF_ADDRESSES[@]}"; do
+  SELF_ADDRESS_OPTIONS+=" --self-address $address"
+done
 
 cat > /etc/systemd/system/shbvpn-acme.service <<EOF
 [Unit]
@@ -360,7 +531,7 @@ Wants=network-online.target
 Type=simple
 User=shbvpn
 Group=shbvpn
-ExecStart=$PROXY_BIN --listen :$PORT --cert $CONFIG_DIR/tls/fullchain.pem --key $CONFIG_DIR/tls/privkey.pem --credentials $CREDS_FILE
+ExecStart=$PROXY_BIN --listen :$PORT --cert $CONFIG_DIR/tls/fullchain.pem --key $CONFIG_DIR/tls/privkey.pem --credentials $CREDS_FILE --self-host $HOST$SELF_ADDRESS_OPTIONS
 Restart=on-failure
 RestartSec=5s
 AmbientCapabilities=CAP_NET_BIND_SERVICE
@@ -370,7 +541,7 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
@@ -384,7 +555,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=$CERTBOT ${CERTBOT_OPTIONS[*]} renew --cert-name shbvpn --quiet
+ExecStart=$INSTALLED_ROOT/installer/renew.sh
+Restart=on-failure
+RestartSec=1h
 EOF
 
 cat > /etc/systemd/system/shbvpn-renew.timer <<'EOF'
@@ -404,9 +577,12 @@ EOF
 systemctl daemon-reload
 
 open_ufw_port() {
-  local port=$1 marker=$2
-  if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
-    if ! ufw status | grep -Eq "^${port}/tcp[[:space:]]+ALLOW"; then
+  local port=$1 marker=$2 status
+  if ! command -v ufw >/dev/null 2>&1; then return; fi
+  status=$(LC_ALL=C ufw status) || die "could not inspect UFW rules"
+  if grep -q '^Status: active$' <<< "$status"; then
+    # A rule limited to one source or interface does not expose the public listener.
+    if ! grep -Eq "^${port}/tcp[[:space:]]+ALLOW([[:space:]]+IN)?[[:space:]]+Anywhere([[:space:]]*(#.*)?)?$" <<< "$status"; then
       ufw allow "$port/tcp" comment 'SHB VPN'
       printf '%s\n' "$port" > "/var/lib/shbvpn/$marker"
     fi
@@ -449,3 +625,4 @@ systemctl is-enabled --quiet shbvpn-renew.timer || die "certificate renewal time
 printf '\nInstallation complete. Import this key in the Chrome extension:\n'
 show_key
 printf '\nKeep this key private. The proxy is listening on %s:%s.\n' "$HOST" "$PORT"
+UPDATE_COMPLETE=1

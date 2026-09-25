@@ -1,0 +1,11 @@
+**
+!server/
+!server/*.go
+!server/go.mod
+!deploy/
+!deploy/manager.py
+!deploy/run_server.py
+!installer/
+!installer/export-key.py
+!installer/healthcheck.py
+!installer/public_ip.py

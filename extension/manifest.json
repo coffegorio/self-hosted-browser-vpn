@@ -3,7 +3,7 @@
   "name": "Self-Hosted Browser VPN",
   "version": "0.1.0",
   "description": "Подключает трафик Chrome к вашему собственному HTTPS-прокси.",
-  "minimum_chrome_version": "102",
+  "minimum_chrome_version": "108",
   "permissions": ["proxy", "privacy", "storage", "webRequest", "webRequestAuthProvider"],
   "host_permissions": ["<all_urls>"],
   "background": {
