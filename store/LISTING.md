@@ -33,6 +33,8 @@ webRequest + webRequestAuthProvider: Respond to HTTP proxy authentication challe
 Remote code: None. All executable extension code is packaged locally.
 
 Publication option proposed: Unlisted (still requires normal store review).
-Privacy policy URL: publish store/PRIVACY.md to an accessible HTTPS page before submitting.
+Privacy policy URL: https://github.com/coffegorio/self-hosted-browser-vpn/blob/codex/chrome-store-release/store/PRIVACY.md
+
+Reviewer instructions: see store/REVIEWER-INSTRUCTIONS.md.
 
 Do not submit until the release checklist and browser network tests are complete.

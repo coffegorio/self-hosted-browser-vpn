@@ -7,10 +7,10 @@
 - [x] Verify authenticated HTTP and HTTPS traffic through controlled test proxies.
 - [x] Verify SOCKS5 traffic, unreachable proxy, bad password, TLS failures and absence of direct fallback for ordinary destinations.
 - [x] Exercise restart, settings conflicts and disconnect in the browser; IP-check races have unit coverage.
-- [ ] Inspect screenshots; create extension icons and store screenshots.
+- [x] Inspect screenshots; create extension icons and store screenshots.
 - [x] Reconcile user documentation and privacy policy with final behavior.
 - [x] Build a clean ZIP excluding tests, credentials and development dependencies; verify contents.
-- [ ] Push reviewed changes and host the privacy policy.
+- [x] Push reviewed changes and host the privacy policy on the public release branch.
 - [ ] Verify publisher registration, fee and dashboard access with the owner.
 - [ ] Upload package, complete privacy/test instructions, submit for review.
 - [ ] Record actual review outcome; distinguish submission from publication.
