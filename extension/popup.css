@@ -24,7 +24,7 @@ p { margin: 0; }
 #status-description { color: #617170; font-size: 12px; margin-top: 3px; }
 .error { color: #9b2525; background: #fff0ee; border: 1px solid #f6d4d0; border-radius: 8px; padding: 8px 10px; margin-top: 12px; }
 
-label { display: block; font-size: 12px; font-weight: 700; margin: 12px 0 6px; }
+label { display: block; font-size: 12px; font-weight: 700; margin: 8px 0 4px; }
 textarea { display: block; width: 100%; padding: 10px; resize: vertical; border: 1px solid #c8d5cf; border-radius: 8px; background: white; color: #152829; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 textarea:focus, button:focus-visible, summary:focus-visible { outline: 2px solid #16896d; outline-offset: 2px; }
 button { font: inherit; cursor: pointer; }
@@ -45,3 +45,6 @@ button:disabled { cursor: wait; opacity: .55; }
 details { margin-top: 16px; padding-top: 13px; border-top: 1px solid #e0e8e4; }
 summary { color: #265e50; font-weight: 700; cursor: pointer; }
 footer { margin-top: 18px; padding-top: 13px; border-top: 1px solid #e0e8e4; color: #697975; font-size: 11px; }
+
+input, select { width: 100%; min-height: 32px; padding: 6px; border: 1px solid #c8d5cf; border-radius: 8px; background: white; color: #152829; font: inherit; }
+input:focus, select:focus { outline: 2px solid #16896d; outline-offset: 2px; }

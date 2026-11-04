@@ -2,6 +2,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node browser-tests/smoke.mjs",
+    "test:network": "node browser-tests/network.mjs",
+    "test:conflict": "node browser-tests/conflict.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
   }
 }

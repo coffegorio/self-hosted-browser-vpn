@@ -1,5 +1,7 @@
 # Self-Hosted Browser VPN
 
+Версия расширения 0.2.0 добавляет ручную настройку сторонних HTTP/HTTPS/SOCKS5-прокси и проверку ожидаемого IP. Собственный сервер из этого репозитория необязателен. Инструкции и ограничения: [extension/README.md](extension/README.md). Публикация в Chrome Web Store ещё не завершена.
+
 **Русский** · [English](README.en.md)
 
 [![CI](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml)

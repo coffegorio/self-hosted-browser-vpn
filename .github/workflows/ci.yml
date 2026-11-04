@@ -44,6 +44,21 @@ jobs:
         run: npm test
         working-directory: extension
 
+      - name: Install extension test dependencies
+        run: npm ci
+        working-directory: extension
+
+      - name: Install test Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: extension
+
+      - name: Test real browser extension and proxy paths
+        run: npm run test:browser && npm run test:network && npm run test:conflict
+        working-directory: extension
+
+      - name: Package Chrome Web Store artifact
+        run: python3 scripts/package-extension.py
+
       - name: Test PAC routing
         run: node tests/extension_routing.mjs
 

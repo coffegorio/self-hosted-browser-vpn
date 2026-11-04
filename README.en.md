@@ -1,5 +1,7 @@
 # Self-Hosted Browser VPN
 
+Extension 0.2.0 adds manual third-party HTTP/HTTPS/SOCKS5 configuration and expected exit-IP checks. The bundled server is optional. See [extension/README.md](extension/README.md) for instructions and limitations. Chrome Web Store publication is not yet complete.
+
 **English** · [Русский](README.md)
 
 [![CI](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml)

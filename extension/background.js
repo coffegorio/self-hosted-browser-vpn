@@ -4,11 +4,12 @@ import {
   isEffectiveProxySetting,
   isMatchingProxyChallenge,
   normalizeExclusions,
+  normalizeExpectedIp,
   parseConnectionKey,
   validateConnection
 } from './core.mjs';
 
-const STORAGE_KEYS = ['connection', 'enabled', 'exclusions', 'proxyError'];
+const STORAGE_KEYS = ['connection', 'enabled', 'exclusions', 'proxyError', 'expectedIp'];
 const authAttempts = new Map();
 const WEBRTC_POLICY = 'disable_non_proxied_udp';
 let operation = Promise.resolve();
@@ -19,14 +20,13 @@ let browserSettingEpoch = 0;
 let restoreAfterIncognitoTakeover = false;
 let ownProxyClearedForConflict = false;
 
-function exclusive(task) {
+function exclusive(task, changesRoute = true) {
   const next = operation.then(async () => {
-    configurationChanging = true;
-    configurationEpoch++;
+    if (changesRoute) { configurationChanging = true; configurationEpoch++; }
     try {
       return await task();
     } finally {
-      configurationChanging = false;
+      if (changesRoute) configurationChanging = false;
     }
   });
   operation = next.catch(() => {});
@@ -114,6 +114,7 @@ async function status() {
     hasConnection: Boolean(connection),
     server: connection ? `${connection.host}:${connection.port}` : null,
     exclusions,
+    expectedIp: data.expectedIp || '',
     proxyError: data.proxyError || null
   };
   if (!connection) return { ...base, state: 'unconfigured' };
@@ -243,11 +244,15 @@ const boot = reconcileAtStartup().catch(async () => {
 });
 
 async function importKey(key) {
-  const connection = parseConnectionKey(key);
+  return saveConnection(parseConnectionKey(key));
+}
+
+async function saveConnection(value) {
+  const connection = validateConnection(value);
   await chrome.storage.local.set({ enabled: false });
   await clearOwnProxySetting();
   await clearOwnWebRTCSetting();
-  await chrome.storage.local.set({ connection, exclusions: [], proxyError: null });
+  await chrome.storage.local.set({ connection, exclusions: [], proxyError: null, expectedIp: '' });
   await updateBadge();
   return status();
 }
@@ -318,7 +323,7 @@ async function disconnect() {
 
 async function forget() {
   await disconnect();
-  await chrome.storage.local.remove(['connection', 'exclusions']);
+  await chrome.storage.local.remove(['connection', 'exclusions', 'expectedIp']);
   await updateBadge();
   return status();
 }
@@ -413,6 +418,13 @@ async function testIp() {
     if (configurationChanging || changed() || (after.state !== 'active' && after.canRetryIp !== true)) {
       throw new Error('Во время проверки возникла ошибка прокси.');
     }
+    const actual = normalizeExpectedIp(body.ip);
+    if (!actual) throw new Error('Пустой IP.');
+    if (current.expectedIp && normalizeExpectedIp(current.expectedIp) !== actual) {
+      const error = new Error(`IP не совпадает: получен ${actual}, ожидается ${current.expectedIp}. Не продолжайте вход, пока не проверите прокси.`);
+      error.code = 'IP_MISMATCH';
+      throw error;
+    }
     if (previousError) {
       await exclusive(async () => {
         // Entering this queued operation increments the epoch once. No other
@@ -438,8 +450,9 @@ async function testIp() {
     if (configurationChanging || changed()) {
       throw new Error('Параметры подключения изменились во время проверки.');
     }
-    return { ip: body.ip };
-  } catch {
+    return { ip: actual, matched: Boolean(current.expectedIp) };
+  } catch (error) {
+    if (error.code === 'IP_MISMATCH') throw error;
     throw new Error('Не удалось проверить внешний IP. Проверьте сервер и попробуйте ещё раз.');
   } finally {
     clearTimeout(timeout);
@@ -452,6 +465,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     await boot;
     switch (message?.type) {
       case 'GET_STATE': return status();
+      case 'SAVE_EXPECTED_IP': return exclusive(async () => {
+        const expectedIp = normalizeExpectedIp(message.ip);
+        await chrome.storage.local.set({expectedIp});
+        return status();
+      });
+      case 'SAVE_CONNECTION': return exclusive(() => saveConnection(message.connection));
       case 'IMPORT_KEY': return exclusive(() => importKey(message.key));
       case 'CONNECT': return exclusive(connect);
       case 'DISCONNECT': return exclusive(disconnect);
@@ -476,6 +495,7 @@ chrome.webRequest.onAuthRequired.addListener(
     let matched = false;
     (async () => {
       await boot;
+      await operation;
       const epoch = configurationEpoch;
       const settingEpoch = browserSettingEpoch;
       if (configurationChanging) return { cancel: true };
@@ -508,7 +528,7 @@ chrome.webRequest.onAuthRequired.addListener(
         await exclusive(async () => {
           await chrome.storage.local.set({ proxyError: { possibleDirect: false, code: 'AUTH_FAILED', at: Date.now() } });
           await updateBadge();
-        });
+        }, false);
         return { cancel: true };
       }
       authAttempts.set(details.requestId, true);
@@ -531,7 +551,7 @@ chrome.proxy.onProxyError.addListener((details) => {
     const code = typeof details.error === 'string' && /^[A-Z_]+$/.test(details.error) ? details.error : 'PROXY_ERROR';
     await chrome.storage.local.set({ proxyError: { possibleDirect: details.fatal === false, code, at: Date.now() } });
     await updateBadge();
-  }).catch(() => {});
+  }, false).catch(() => {});
 });
 
 chrome.proxy.settings.onChange.addListener(() => {
