@@ -21,23 +21,33 @@ export function validateConnection(value) {
     throw new Error('Некорректный ключ подключения.');
   }
   const keys = Object.keys(value).sort();
-  if (keys.join(',') !== 'host,password,port,username,v' || value.v !== 1) {
+  const legacy = value.v === 1 && keys.join(',') === 'host,password,port,username,v';
+  const generic = value.v === 2 && keys.join(',') === 'host,password,port,scheme,username,v';
+  if (!legacy && !generic) {
     throw new Error('Неподдерживаемый формат ключа подключения.');
   }
+  if (generic && !['http', 'https', 'socks5'].includes(value.scheme)) {
+    throw new Error('Неподдерживаемый тип прокси.');
+  }
+  if (generic && value.scheme === 'socks5' && (value.username !== '' || value.password !== '')) {
+    throw new Error('Chrome не поддерживает SOCKS5 с логином и паролем.');
+  }
+  const anonymous = generic && value.username === '' && value.password === '';
   if (!isValidHost(value.host)) {
     throw new Error('В ключе указан некорректный адрес сервера.');
   }
   if (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535) {
     throw new Error('В ключе указан некорректный порт.');
   }
-  if (typeof value.username !== 'string' || value.username.length < 1 || value.username.length > 256 || /[:\x00-\x1f\x7f]/.test(value.username)) {
+  if (typeof value.username !== 'string' || (!anonymous && value.username.length < 1) || value.username.length > 256 || /[:\x00-\x1f\x7f]/.test(value.username)) {
     throw new Error('В ключе указано некорректное имя пользователя.');
   }
-  if (typeof value.password !== 'string' || value.password.length < 1 || value.password.length > 512 || /[\x00-\x1f\x7f]/.test(value.password)) {
+  if (typeof value.password !== 'string' || (!anonymous && value.password.length < 1) || value.password.length > 512 || /[\x00-\x1f\x7f]/.test(value.password)) {
     throw new Error('В ключе указан некорректный пароль.');
   }
   return {
-    v: 1,
+    v: value.v,
+    ...(generic ? { scheme: value.scheme } : {}),
     host: value.host.toLowerCase(),
     port: value.port,
     username: value.username,
@@ -102,7 +112,8 @@ export function buildPacScript(connection, exclusions = []) {
     throw new Error('Некорректные исключения.');
   }
   const normalized = normalizeExclusions(exclusions.join('\n'));
-  const proxy = `HTTPS ${safe.host}:${safe.port}`;
+  const protocol = { http: 'PROXY', https: 'HTTPS', socks5: 'SOCKS5' }[safe.scheme || 'https'];
+  const proxy = `${protocol} ${safe.host}:${safe.port}`;
   return `var SHBVPN_PROXY = ${JSON.stringify(proxy)};\n` +
     `var SHBVPN_EXCLUSIONS = ${JSON.stringify(normalized)};\n` +
     `function FindProxyForURL(url, host) {\n` +
@@ -133,9 +144,21 @@ export function isEffectiveProxySetting(setting, expectedConfig) {
 }
 
 export function isMatchingProxyChallenge(details, connection) {
-  return details?.isProxy === true &&
+  return connection.scheme !== 'socks5' && connection.username !== '' &&
+    details?.isProxy === true &&
     details.statusCode === 407 &&
     String(details.scheme).toLowerCase() === 'basic' &&
     details.challenger?.host?.toLowerCase() === connection.host &&
     details.challenger?.port === connection.port;
+}
+
+export function normalizeExpectedIp(raw) {
+  if (typeof raw !== 'string') throw new Error('Укажите IP текстом.');
+  const value = raw.trim();
+  if (!value) return '';
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) && isValidHost(value)) return value;
+  if (/^[0-9a-fA-F:]+$/.test(value) && value.includes(':')) {
+    try { return new URL(`http://[${value}]/`).hostname.slice(1,-1); } catch {}
+  }
+  throw new Error('Укажите IPv4 или IPv6 без порта и протокола.');
 }

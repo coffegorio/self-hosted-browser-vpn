@@ -1,5 +1,7 @@
 # Self-Hosted Browser VPN
 
+Extension 0.2.1 connects Chrome to your HTTP, HTTPS, or SOCKS5 proxy and checks the expected exit IP. If you already have a proxy, start with the [extension guide](extension/README.md). To run your own server, follow the quick start below. [Chrome Web Store materials](store/RELEASE-CHECKLIST.md).
+
 **English** · [Русский](README.md)
 
 [![CI](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml)

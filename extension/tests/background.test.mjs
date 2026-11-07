@@ -60,7 +60,7 @@ async function loadBackground(options = {}) {
     tabs: { async get() { return { incognito: state.tabIncognito }; } },
     storage: { local: {
       async get(keys) { return Object.fromEntries(keys.map((key) => [key, state.data[key]])); },
-      async set(value) { Object.assign(state.data, value); },
+      async set(value) { if (state.storageSetGate) await state.storageSetGate(value); Object.assign(state.data, value); },
       async remove(keys) { for (const key of keys) delete state.data[key]; },
       async setAccessLevel() {}
     } },
@@ -364,7 +364,7 @@ test('fatal proxy error can be cleared only by a successful IP retry', async () 
   assert.equal(before.state, 'error');
   assert.equal(before.canRetryIp, true);
   assert.equal(h.state.badge, '!');
-  assert.deepEqual(await h.message('TEST_IP'), { ok: true, result: { ip: '203.0.113.9' } });
+  assert.deepEqual(await h.message('TEST_IP'), { ok: true, result: { ip: '203.0.113.9', matched: false } });
   assert.equal((await h.message('GET_STATE')).result.state, 'active');
   assert.equal(h.state.badge, 'ON');
 });
@@ -517,4 +517,86 @@ test('IP check rejects a configuration change while its initial status is being 
   release();
   assert.equal((await check).ok, false);
   assert.equal(h.state.fetchCount, 0);
+});
+
+test('manual profiles save without leaking credentials in state and connect with their selected protocol', async () => {
+  for (const scheme of ['http', 'https', 'socks5']) {
+    const h = await loadBackground();
+    const profile = {v:2, scheme, host:'custom.example.com', port:1080, username:'',password:''};
+    const saved = await h.message('SAVE_CONNECTION', {connection:profile});
+    assert.equal(saved.ok, true);
+    assert.equal(saved.result.enabled, false);
+    assert.equal(saved.result.server, 'custom.example.com:1080');
+    assert.equal(saved.result.password, undefined);
+    assert.deepEqual(h.state.data.connection, profile);
+    const result = await h.message('CONNECT');
+    assert.equal(result.ok, true);
+    assert.equal(result.result.state, 'active');
+    assert.deepEqual(h.state.proxyValue, buildProxyConfig(profile));
+  }
+});
+test('invalid manual profile does not replace the active connection', async () => {
+  const h = await loadBackground();
+  const saved = await h.message('SAVE_CONNECTION', {connection:{v:2,scheme:'socks5',host:'custom.example.com',port:1080,username:'user',password:'password'}});
+  assert.equal(saved.ok,false);
+  assert.deepEqual(h.state.data.connection,connection);
+  assert.equal(h.state.data.enabled,true);
+});
+
+test('expected IP comparison rejects another egress and accepts the matching IP', async () => {
+  const h=await loadBackground();
+  assert.equal((await h.message('SAVE_EXPECTED_IP',{ip:'203.0.113.10'})).ok,true);
+  const wrong=await h.message('TEST_IP');
+  assert.equal(wrong.ok,false);
+  assert.match(wrong.error,/IP не совпадает/);
+  assert.equal((await h.message('SAVE_EXPECTED_IP',{ip:'203.0.113.9'})).ok,true);
+  const right=await h.message('TEST_IP');
+  assert.equal(right.ok,true);
+  assert.equal(right.result.matched,true);
+});
+
+test('IP checks request the appropriate family and disallow redirects', async () => {
+  const h = await loadBackground();
+  const requests = [];
+  h.state.fetchResponse = async (url, options) => {
+    requests.push({ url, redirect: options.redirect });
+    return { ok: true, json: async () => ({ ip: requests.length === 1 ? '203.0.113.9' : '2001:db8::9' }) };
+  };
+
+  assert.deepEqual(await h.message('TEST_IP'), { ok: true, result: { ip: '203.0.113.9', matched: false } });
+  assert.equal((await h.message('SAVE_EXPECTED_IP', { ip: '2001:0DB8:0:0::9' })).ok, true);
+  assert.deepEqual(await h.message('TEST_IP'), { ok: true, result: { ip: '2001:db8::9', matched: true } });
+  assert.deepEqual(requests, [
+    { url: 'https://api.ipify.org?format=json', redirect: 'error' },
+    { url: 'https://api6.ipify.org?format=json', redirect: 'error' }
+  ]);
+});
+
+test('IPv6 IP check refuses an exclusion of the selected endpoint', async () => {
+  const h = await loadBackground({ data: { expectedIp: '2001:db8::9' } });
+  for (const exclusion of ['api6.ipify.org', 'ipify.org']) {
+    assert.equal((await h.message('SAVE_EXCLUSIONS', { text: exclusion })).ok, true);
+    assert.match((await h.message('TEST_IP')).error, /находится в исключениях/);
+  }
+  assert.equal(h.state.fetchCount, 0);
+});
+
+test('invalid expected IP does not replace saved expectation', async () => {
+  const h=await loadBackground({data:{expectedIp:'203.0.113.9'}});
+  assert.equal((await h.message('SAVE_EXPECTED_IP',{ip:'999.0.0.1'})).ok,false);
+  assert.equal(h.state.data.expectedIp,'203.0.113.9');
+});
+
+test('proxy auth waits for queued error bookkeeping instead of cancelling a valid challenge', async () => {
+  const h=await loadBackground();
+  await h.message('GET_STATE');
+  let release, entered;
+  const gate=new Promise(r=>{release=r;});
+  const start=new Promise(r=>{entered=r;});
+  h.state.storageSetGate=async value=>{if(value.proxyError){entered();await gate;}};
+  h.onProxyError.emit({fatal:true,error:'ERR_PROXY_CONNECTION_FAILED'});
+  await start;
+  const result=h.auth('bookkeeping-race');
+  release();
+  assert.deepEqual(await result,{authCredentials:{username:connection.username,password:connection.password}});
 });

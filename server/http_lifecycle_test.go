@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -30,7 +31,7 @@ func boundedTestServer(t *testing.T, handler http.Handler) *httptest.Server {
 	return server
 }
 
-func tlsTestClient(t *testing.T, server *httptest.Server) net.Conn {
+func tlsTestClient(t *testing.T, server *httptest.Server) *tls.Conn {
 	t.Helper()
 	config := server.Client().Transport.(*http.Transport).TLSClientConfig
 	client, err := tls.Dial("tcp", server.Listener.Addr().String(), config)
@@ -42,6 +43,66 @@ func tlsTestClient(t *testing.T, server *httptest.Server) net.Conn {
 		t.Fatal(err)
 	}
 	return client
+}
+
+func TestConnectRelaysResponseAfterClientHalfClose(t *testing.T) {
+	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if err := listener.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	proxy := testProxy(t, "browser", "secret")
+	proxy.dial = func(ctx context.Context, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
+	}
+	client := tlsTestClient(t, boundedTestServer(t, proxy))
+	auth := base64.StdEncoding.EncodeToString([]byte("browser:secret"))
+	if _, err := fmt.Fprintf(client, "CONNECT 1.1.1.1:443 HTTP/1.1\r\nHost: 1.1.1.1:443\r\nProxy-Authorization: Basic %s\r\n\r\nPING", auth); err != nil {
+		t.Fatal(err)
+	}
+	origin, err := listener.AcceptTCP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer origin.Close()
+	if err := origin.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(client)
+	response, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	if err != nil || response.StatusCode != http.StatusOK {
+		t.Fatalf("CONNECT response = %v, %v", response, err)
+	}
+
+	if err := client.CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	if request, err := io.ReadAll(origin); err != nil || string(request) != "PING" {
+		t.Fatalf("upstream received %q, %v; want PING followed by EOF", request, err)
+	}
+	// The origin has received EOF and has yet to reply. The client should still be able to read.
+	if err := client.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.Peek(1); !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("client read while waiting for the origin = %v; want read timeout", err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(origin, "PONG"); err != nil {
+		t.Fatal(err)
+	}
+	if err := origin.CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	if reply, err := io.ReadAll(reader); err != nil || string(reply) != "PONG" {
+		t.Fatalf("downstream received %q, %v; want PONG followed by EOF", reply, err)
+	}
 }
 
 func TestUnauthenticatedBodiesReleaseConnections(t *testing.T) {

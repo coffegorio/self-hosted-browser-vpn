@@ -1,0 +1,35 @@
+import {chromium} from '@playwright/test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=process.env.SHBVPN_EXTENSION_DIR || fileURLToPath(new URL('../',import.meta.url));
+const tmp=await mkdtemp(path.join(tmpdir(),'proxy-conflict-'));
+const rival=path.join(tmp,'rival');await mkdir(rival);
+await writeFile(path.join(rival,'manifest.json'),JSON.stringify({manifest_version:3,name:'Test proxy owner',version:'1.0',permissions:['proxy'],background:{service_worker:'rival.js'}}));
+await writeFile(path.join(rival,'rival.js'),'chrome.runtime.onInstalled.addListener(()=>{});');
+let context;
+try{
+ context=await chromium.launchPersistentContext(path.join(tmp,'profile'),{channel:'chromium',headless:true,args:[`--disable-extensions-except=${root},${rival}`,`--load-extension=${root},${rival}`]});
+ const main=context.serviceWorkers().find(w=>w.url().endsWith('/background.js'))||await context.waitForEvent('serviceworker',{predicate:w=>w.url().endsWith('/background.js')});
+ const other=context.serviceWorkers().find(w=>w.url().endsWith('/rival.js'))||await context.waitForEvent('serviceworker',{predicate:w=>w.url().endsWith('/rival.js')});
+ const page=await context.newPage();await page.goto(`chrome-extension://${new URL(main.url()).host}/popup.html`);
+ const message=(type,fields={})=>page.evaluate(({type,fields})=>chrome.runtime.sendMessage({type,...fields}),{type,fields});
+ assert.equal((await message('SAVE_CONNECTION',{connection:{v:2,scheme:'http',host:'proxy.example.com',port:8080,username:'',password:''}})).ok,true);
+ await other.evaluate(()=>chrome.proxy.settings.set({scope:'regular',value:{mode:'direct'}}));
+ const blocked=await message('CONNECT');
+ assert.equal(blocked.ok,false);
+ assert.match(blocked.error,/расширение|политика/);
+ assert.equal((await other.evaluate(()=>chrome.proxy.settings.get({incognito:false}))).value.mode,'direct');
+ await other.evaluate(()=>chrome.proxy.settings.clear({scope:'regular'}));
+ assert.equal((await message('CONNECT')).ok,true);
+ await page.waitForFunction(()=>document.getElementById('status-title').textContent==='Маршрутизация включена');
+ await other.evaluate(()=>chrome.proxy.settings.set({scope:'regular',value:{mode:'direct'}}));
+ await page.waitForFunction(()=>document.getElementById('status-title').textContent==='Конфликт настроек');
+ const state=await message('GET_STATE');assert.equal(state.result.state,'conflict');
+ assert.equal((await message('TEST_IP')).ok,false);
+ assert.equal((await message('DISCONNECT')).ok,true);
+ assert.equal((await other.evaluate(()=>chrome.proxy.settings.get({incognito:false}))).value.mode,'direct');
+ console.log('PASS: another extension takes precedence; connect/IP check refuse conflict; disconnect preserves competing setting');
+}finally{await context?.close();await rm(tmp,{recursive:true,force:true});}

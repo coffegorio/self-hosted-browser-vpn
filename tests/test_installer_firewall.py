@@ -18,8 +18,8 @@ class InstallerFirewallTests(unittest.TestCase):
     def run_rule(self, status, port="80", fail_status=False, fail_allow=False):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            function = FUNCTION.replace("/var/lib/shbvpn/", str(directory) + "/")
             script = """set -Eeuo pipefail
+FRESH_INSTALL=0
 die() { printf '%s\\n' "$*" >&2; exit 1; }
 ufw() {
   if [[ $1 == status ]]; then
@@ -30,10 +30,10 @@ ufw() {
     printf '%s\\n' "$*"
   fi
 }
-""" + function + "\nopen_ufw_port " + shlex.quote(port) + " ufw-added\n"
+""" + FUNCTION + "\nopen_ufw_port " + shlex.quote(port) + " ufw-added\n"
             result = subprocess.run(
                 ["bash"], input=script, text=True, capture_output=True,
-                env={**os.environ, "UFW_STATUS": status,
+                env={**os.environ, "UFW_STATUS": status, "STATE_DIR": str(directory),
                      "FAIL_STATUS": str(int(fail_status)), "FAIL_ALLOW": str(int(fail_allow))},
             )
             marker = directory / "ufw-added"
@@ -75,6 +75,12 @@ ufw() {
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "allow 8443/tcp comment SHB VPN\n")
         self.assertEqual(marker, "8443\n")
+
+    def test_existing_ipv6_rule_is_preserved(self):
+        result, marker = self.run_rule("Status: active\n80/tcp (v6) ALLOW Anywhere (v6) # existing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "allow from 0.0.0.0/0 to any port 80 proto tcp comment SHB VPN\n")
+        self.assertEqual(marker, "ipv4:80\n")
 
     def test_ufw_failures_are_reported_without_claiming_rule_ownership(self):
         for failure in ("fail_status", "fail_allow"):

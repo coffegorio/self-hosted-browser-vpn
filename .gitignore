@@ -30,3 +30,8 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# Extension development and release artifacts
+node_modules/
+/extension/test-results/
+/dist/

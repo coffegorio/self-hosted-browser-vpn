@@ -1,5 +1,7 @@
 # Self-Hosted Browser VPN
 
+Расширение 0.2.1 подключает Chrome к вашему HTTP, HTTPS или SOCKS5-прокси и проверяет ожидаемый внешний IP. Если прокси уже есть, начните с [инструкции расширения](extension/README.md). Для своего сервера используйте быстрый старт ниже. [Материалы для Chrome Web Store](store/RELEASE-CHECKLIST.md).
+
 **Русский** · [English](README.en.md)
 
 [![CI](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/coffegorio/self-hosted-browser-vpn/actions/workflows/ci.yml)

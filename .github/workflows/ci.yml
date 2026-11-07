@@ -44,6 +44,25 @@ jobs:
         run: npm test
         working-directory: extension
 
+      - name: Install extension test dependencies
+        run: npm ci
+        working-directory: extension
+
+      - name: Install test Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: extension
+
+      - name: Package Chrome Web Store artifact
+        run: |
+          python3 scripts/package-extension.py
+          (cd dist && sha256sum -c ./*.zip.sha256)
+          unzip -q dist/*.zip -d "$RUNNER_TEMP/store-extension"
+          printf 'SHBVPN_EXTENSION_DIR=%s\n' "$RUNNER_TEMP/store-extension" >> "$GITHUB_ENV"
+
+      - name: Test packaged extension in Chromium
+        run: npm run test:browser && npm run test:network && npm run test:conflict
+        working-directory: extension
+
       - name: Test PAC routing
         run: node tests/extension_routing.mjs
 
@@ -69,3 +88,15 @@ jobs:
         run: |
           docker run --rm --entrypoint /app/shbvpn-proxy shbvpn-proxy:local --help
           docker run --rm shbvpn-cert-manager:local --help
+
+      - name: Upload tested Chrome Web Store package and listing assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chrome-web-store
+          if-no-files-found: error
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+            extension/icons/icon-128.png
+            store/*.md
+            store/screenshots/*.png

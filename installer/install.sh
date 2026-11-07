@@ -5,6 +5,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 INSTALLED_ROOT=/usr/local/share/shbvpn
 MANAGE_BIN=/usr/local/sbin/shbvpn
 CONFIG_DIR=/etc/shbvpn
+STATE_DIR=/var/lib/shbvpn
 CONFIG_FILE=$CONFIG_DIR/config.json
 CREDS_FILE=$CONFIG_DIR/credentials
 PROXY_BIN=/usr/local/bin/shbvpn-proxy
@@ -15,9 +16,13 @@ BACKEND_FILE=$CONFIG_DIR/certbot-backend
 CERTBOT=$SNAP_CERTBOT
 CERTBOT_OPTIONS=()
 CERTBOT_LOG_DIR=
-LINEAGE=/etc/letsencrypt/live/shbvpn
-ACME_DIR=/var/lib/shbvpn/acme
-HOOK=/etc/letsencrypt/renewal-hooks/deploy/shbvpn
+ACME_DIR=$STATE_DIR/acme
+UNIT_FILES=(
+  /etc/systemd/system/shbvpn-acme.service
+  /etc/systemd/system/shbvpn-proxy.service
+  /etc/systemd/system/shbvpn-renew.service
+  /etc/systemd/system/shbvpn-renew.timer
+)
 
 usage() {
   cat <<'EOF'
@@ -39,24 +44,31 @@ EOF
 
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 
+lock_installation() {
+  exec 9>/run/shbvpn-install.lock
+  flock -n 9 || die "another SHB VPN management command is running"
+}
+
 select_certbot_backend() {
+  local certbot_config
   case "$1" in
     snap)
       CERTBOT=$SNAP_CERTBOT
       CERTBOT_OPTIONS=()
       CERTBOT_LOG_DIR=
-      LINEAGE=/etc/letsencrypt/live/shbvpn
-      HOOK=/etc/letsencrypt/renewal-hooks/deploy/shbvpn
+      certbot_config=/etc/letsencrypt
       ;;
     venv)
       CERTBOT=$VENV_CERTBOT
       CERTBOT_LOG_DIR=/var/log/shbvpn/certbot
-      CERTBOT_OPTIONS=(--config-dir "$CONFIG_DIR/letsencrypt" --work-dir /var/lib/shbvpn/certbot-work --logs-dir "$CERTBOT_LOG_DIR")
-      LINEAGE=$CONFIG_DIR/letsencrypt/live/shbvpn
-      HOOK=$CONFIG_DIR/letsencrypt/renewal-hooks/deploy/shbvpn
+      certbot_config=$CONFIG_DIR/letsencrypt
+      CERTBOT_OPTIONS=(--config-dir "$certbot_config" --work-dir "$STATE_DIR/certbot-work" --logs-dir "$CERTBOT_LOG_DIR")
       ;;
     *) die "invalid Certbot backend" ;;
   esac
+  LINEAGE=$certbot_config/live/shbvpn
+  RENEWAL_FILE=$certbot_config/renewal/shbvpn.conf
+  HOOK=$certbot_config/renewal-hooks/deploy/shbvpn
 }
 
 snapd_masked() {
@@ -102,6 +114,8 @@ done
 
 [[ $EUID -eq 0 ]] || die "run with sudo"
 
+if [[ $MODE == rotate || $MODE == uninstall ]]; then lock_installation; fi
+
 if [[ $MODE != install ]]; then
   [[ -z $KIND && $PORT_SET -eq 0 && -z $EMAIL && ${#SELF_ADDRESSES[@]} -eq 0 && $CLEAR_SELF_ADDRESSES -eq 0 ]] || die "management commands do not take install options"
   [[ -f $CONFIG_FILE ]] || die "installation not found"
@@ -146,12 +160,22 @@ if [[ $MODE == rotate ]]; then
   exit 0
 fi
 
+delete_ufw_rule() {
+  local rule=$1
+  shift
+  if [[ $rule == ipv4:* ]]; then
+    ufw --force delete allow from 0.0.0.0/0 to any port "${rule#ipv4:}" proto tcp "$@"
+  else
+    ufw --force delete allow "$rule/tcp" "$@"
+  fi
+}
+
 remove_firewall_rule() {
   local name=$1
-  if [[ -f /var/lib/shbvpn/"$name" ]] && command -v ufw >/dev/null 2>&1; then
+  if [[ -f $STATE_DIR/"$name" ]] && command -v ufw >/dev/null 2>&1; then
     local rule
-    rule=$(cat /var/lib/shbvpn/"$name")
-    ufw --force delete allow "$rule/tcp" || true
+    rule=$(cat "$STATE_DIR/$name")
+    delete_ufw_rule "$rule" || true
   fi
 }
 
@@ -166,7 +190,7 @@ if [[ $MODE == uninstall ]]; then
   systemctl disable --now shbvpn-renew.timer 2>/dev/null || true
   systemctl stop shbvpn-renew.service 2>/dev/null || true
   systemctl disable --now shbvpn-proxy.service shbvpn-acme.service 2>/dev/null || true
-  rm -f /etc/systemd/system/shbvpn-proxy.service /etc/systemd/system/shbvpn-acme.service /etc/systemd/system/shbvpn-renew.service /etc/systemd/system/shbvpn-renew.timer
+  rm -f "${UNIT_FILES[@]}"
   systemctl daemon-reload
   rm -f "$HOOK" "$PROXY_BIN"
   rm -f "$MANAGE_BIN"
@@ -175,7 +199,7 @@ if [[ $MODE == uninstall ]]; then
   if [[ -x $CERTBOT ]]; then
     "$CERTBOT" "${CERTBOT_OPTIONS[@]}" delete --cert-name shbvpn --non-interactive || true
   fi
-  rm -rf "$CONFIG_DIR" /var/lib/shbvpn "$INSTALLED_ROOT"
+  rm -rf "$CONFIG_DIR" "$STATE_DIR" "$INSTALLED_ROOT"
   if [[ -n $CERTBOT_LOG_DIR ]]; then rm -rf "$CERTBOT_LOG_DIR"; fi
   if id shbvpn >/dev/null 2>&1; then userdel shbvpn || true; fi
   printf 'SHB VPN removed. Certbot and Go packages were left installed.\n'
@@ -187,6 +211,8 @@ fi
 # shellcheck source=/dev/null
 . /etc/os-release
 [[ ${ID:-} == ubuntu && ( ${VERSION_ID:-} == 24.04 || ${VERSION_ID:-} == 26.04 ) ]] || die "this installer supports Ubuntu 24.04 and 26.04 only"
+
+lock_installation
 
 if [[ -f $BACKEND_FILE ]]; then
   CERTBOT_BACKEND=$(cat "$BACKEND_FILE")
@@ -238,6 +264,7 @@ if len(set(addresses)) != len(addresses):
     sys.exit("Error: duplicate --self-address")
 PY
 
+FRESH_INSTALL=0
 if [[ -f $CONFIG_FILE ]]; then
   python3 - "$ROOT_DIR/installer" "$CONFIG_FILE" "$KIND" "$HOST" "$PORT" <<'PY' || die "configuration changed; uninstall before changing host or port"
 import json, sys
@@ -260,10 +287,22 @@ PY
 )
   fi
 else
-  # Names are deliberately fixed. Never take over another service's user or lineage.
-  if id shbvpn >/dev/null 2>&1 || [[ -e $LINEAGE || -e /etc/letsencrypt/renewal/shbvpn.conf || -e $PROXY_BIN || -e $MANAGE_BIN || -e $HOOK || -e $INSTALLED_ROOT || -e /etc/systemd/system/shbvpn-proxy.service || -e /etc/systemd/system/shbvpn-acme.service || -e /etc/systemd/system/shbvpn-renew.service || -e /etc/systemd/system/shbvpn-renew.timer ]]; then
-    die "existing SHB VPN resources conflict with a fresh installation"
+  # Only reserve paths that can be removed safely if the fresh installation fails.
+  FRESH_PATHS=(
+    "$CONFIG_DIR" "$STATE_DIR" "$INSTALLED_ROOT"
+    "$PROXY_BIN" "$PROXY_BIN.new" "$MANAGE_BIN" "$HOOK"
+    "${UNIT_FILES[@]}"
+  )
+  if [[ -n $CERTBOT_LOG_DIR ]]; then FRESH_PATHS+=("$CERTBOT_LOG_DIR"); fi
+  for path in "${FRESH_PATHS[@]}" "$LINEAGE" "$RENEWAL_FILE" /etc/letsencrypt/renewal/shbvpn.conf; do
+    if [[ -e $path || -L $path ]]; then die "existing resource conflicts with a fresh installation: $path"; fi
+  done
+  if id shbvpn >/dev/null 2>&1 || getent group shbvpn >/dev/null; then
+    die "existing shbvpn user or group conflicts with a fresh installation"
   fi
+  for unit in "${UNIT_FILES[@]##*/}"; do
+    if systemctl cat "$unit" >/dev/null 2>&1; then die "existing unit conflicts with a fresh installation: $unit"; fi
+  done
   python3 - "$PORT" <<'PY' || die "ports 80 and $PORT must be free before installation"
 import socket
 import sys
@@ -282,6 +321,7 @@ for port in (80, int(sys.argv[1])):
                 continue
             sys.exit(f"Error: TCP port {port} is unavailable on {host}: {error}")
 PY
+  FRESH_INSTALL=1
 fi
 
 export DEBIAN_FRONTEND=noninteractive
@@ -310,55 +350,21 @@ if [[ $CERTBOT_BACKEND == snap ]]; then
   [[ -x $CERTBOT ]] || die "Certbot snap was not installed"
 fi
 
-if ! id shbvpn >/dev/null 2>&1; then
-  useradd --system --user-group --home-dir /var/lib/shbvpn --shell /usr/sbin/nologin shbvpn
-fi
-install -d -o root -g shbvpn -m 0750 /var/lib/shbvpn
-install -d -o root -g shbvpn -m 0750 "$CONFIG_DIR" "$CONFIG_DIR/tls"
-install -d -o root -g root -m 0755 "$ACME_DIR" "$ACME_DIR/.well-known" "$ACME_DIR/.well-known/acme-challenge"
-
-if [[ ! -f $CONFIG_FILE ]]; then
-  python3 - "$KIND" "$HOST" "$PORT" "${SELF_ADDRESSES[@]}" > "$CONFIG_FILE" <<'PY'
-import json, sys
-kind, host, port = sys.argv[1:4]
-json.dump({"kind": kind, "host": host, "port": int(port), "self_addresses": sys.argv[4:]}, sys.stdout, separators=(",", ":"))
-sys.stdout.write("\n")
-PY
-  chmod 0600 "$CONFIG_FILE"
-fi
-if [[ ! -f $BACKEND_FILE ]]; then
-  printf '%s\n' "$CERTBOT_BACKEND" > "$BACKEND_FILE"
-  chmod 0600 "$BACKEND_FILE"
-fi
-if [[ $CERTBOT_BACKEND == venv ]]; then
-  install -d -o root -g root -m 0755 "$INSTALLED_ROOT"
-  install -d -o root -g root -m 0700 "$CONFIG_DIR/letsencrypt" /var/lib/shbvpn/certbot-work "$CERTBOT_LOG_DIR"
-  install -d -o root -g root -m 0755 "$(dirname "$HOOK")"
-  if [[ ! -x $CERTBOT ]]; then
-    python3 -m venv "$VENV_DIR"
-    "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check --no-input 'certbot==5.8.0'
-  fi
-fi
-[[ -x $CERTBOT ]] || die "Certbot was not installed"
-if [[ $KIND == ip ]]; then
-  CERTBOT_VERSION=$($CERTBOT --version | awk '{print $2}')
-  dpkg --compare-versions "$CERTBOT_VERSION" ge 5.4 || die "IP certificates need Certbot 5.4 or newer; found $CERTBOT_VERSION. Update the selected Certbot backend separately, then retry"
-fi
-if [[ ! -f $CREDS_FILE ]]; then make_credentials; fi
-
 UPDATING=0
 UPDATE_READY=0
 UPDATE_COMPLETE=0
 UPDATE_BACKUP=
 TEMP_BIN=
+FRESH_FIREWALL_RULES=()
+FRESH_ENABLED_UNITS=()
+FRESH_UNITS_LOADED=0
+FRESH_USER_ATTEMPTED=0
+FRESH_CERTBOT_ATTEMPTED=0
 UPDATE_PATHS=(
   "$PROXY_BIN" "$MANAGE_BIN" "$HOOK"
   "$CONFIG_FILE"
   "$CONFIG_DIR/tls/fullchain.pem" "$CONFIG_DIR/tls/privkey.pem"
-  /etc/systemd/system/shbvpn-acme.service
-  /etc/systemd/system/shbvpn-proxy.service
-  /etc/systemd/system/shbvpn-renew.service
-  /etc/systemd/system/shbvpn-renew.timer
+  "${UNIT_FILES[@]}"
 )
 if [[ $ROOT_DIR != "$INSTALLED_ROOT" ]]; then
   UPDATE_PATHS+=("$INSTALLED_ROOT/server" "$INSTALLED_ROOT/installer")
@@ -403,11 +409,44 @@ refresh_rollback_tls() {
   mv -f "$CONFIG_DIR/tls/privkey.pem.new" "$CONFIG_DIR/tls/privkey.pem" || return 1
 }
 
+rollback_fresh_install() {
+  local rule unit failed=0
+  echo "Installation failed; removing resources from this attempt" >&2
+  for unit in "${FRESH_ENABLED_UNITS[@]}"; do
+    systemctl disable --now "$unit" || failed=1
+    if [[ $unit == shbvpn-renew.timer ]]; then systemctl stop shbvpn-renew.service || failed=1; fi
+  done
+  for rule in "${FRESH_FIREWALL_RULES[@]}"; do
+    delete_ufw_rule "$rule" comment 'SHB VPN' || { echo "Could not remove the UFW rule for ${rule#ipv4:}/tcp" >&2; failed=1; }
+  done
+  if ((FRESH_CERTBOT_ATTEMPTED)) && [[ -e $LINEAGE || -L $LINEAGE || -e $RENEWAL_FILE || -L $RENEWAL_FILE ]]; then
+    "$CERTBOT" "${CERTBOT_OPTIONS[@]}" delete --cert-name shbvpn --non-interactive || {
+      echo "Could not remove the Certbot lineage at $LINEAGE" >&2
+      failed=1
+    }
+  fi
+  rm -rf -- "${FRESH_PATHS[@]}" || failed=1
+  if ((FRESH_UNITS_LOADED)); then systemctl daemon-reload || failed=1; fi
+  if ((FRESH_USER_ATTEMPTED)); then
+    if id shbvpn >/dev/null 2>&1; then userdel shbvpn || failed=1; fi
+    if getent group shbvpn >/dev/null; then groupdel shbvpn || failed=1; fi
+  fi
+  if ((failed)); then
+    echo "Fresh installation rollback was incomplete; inspect the errors above before retrying" >&2
+  else
+    echo "Fresh installation rolled back" >&2
+  fi
+}
+
 cleanup_install() {
   local status=$? path unit rollback_failed=0 keep_backup=0
-  trap - EXIT
+  trap - EXIT INT TERM
   set +e
   [[ -z $TEMP_BIN ]] || rm -f "$TEMP_BIN"
+  if ((FRESH_INSTALL)); then
+    if ((status != 0 && UPDATE_COMPLETE == 0)); then rollback_fresh_install; fi
+    exit "$status"
+  fi
   rm -f "$PROXY_BIN.new"
   rm -f "$CONFIG_FILE.new"
   if [[ $status -ne 0 && $UPDATING -eq 1 && $UPDATE_READY -eq 1 && $UPDATE_COMPLETE -eq 0 ]]; then
@@ -440,6 +479,49 @@ cleanup_install() {
   if [[ -n $UPDATE_BACKUP && $keep_backup -eq 0 ]]; then rm -rf "$UPDATE_BACKUP"; fi
   exit "$status"
 }
+
+if ((FRESH_INSTALL)); then
+  trap cleanup_install EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+fi
+
+if ! id shbvpn >/dev/null 2>&1; then
+  FRESH_USER_ATTEMPTED=$FRESH_INSTALL
+  useradd --system --user-group --home-dir "$STATE_DIR" --shell /usr/sbin/nologin shbvpn
+fi
+install -d -o root -g shbvpn -m 0750 "$STATE_DIR"
+install -d -o root -g shbvpn -m 0750 "$CONFIG_DIR" "$CONFIG_DIR/tls"
+install -d -o root -g root -m 0755 "$ACME_DIR" "$ACME_DIR/.well-known" "$ACME_DIR/.well-known/acme-challenge"
+
+if [[ ! -f $CONFIG_FILE ]]; then
+  python3 - "$KIND" "$HOST" "$PORT" "${SELF_ADDRESSES[@]}" > "$CONFIG_FILE" <<'PY'
+import json, sys
+kind, host, port = sys.argv[1:4]
+json.dump({"kind": kind, "host": host, "port": int(port), "self_addresses": sys.argv[4:]}, sys.stdout, separators=(",", ":"))
+sys.stdout.write("\n")
+PY
+  chmod 0600 "$CONFIG_FILE"
+fi
+if [[ ! -f $BACKEND_FILE ]]; then
+  printf '%s\n' "$CERTBOT_BACKEND" > "$BACKEND_FILE"
+  chmod 0600 "$BACKEND_FILE"
+fi
+if [[ $CERTBOT_BACKEND == venv ]]; then
+  install -d -o root -g root -m 0755 "$INSTALLED_ROOT"
+  install -d -o root -g root -m 0700 "$CONFIG_DIR/letsencrypt" "$STATE_DIR/certbot-work" "$CERTBOT_LOG_DIR"
+  install -d -o root -g root -m 0755 "$(dirname "$HOOK")"
+  if [[ ! -x $CERTBOT ]]; then
+    python3 -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check --no-input 'certbot==5.8.0'
+  fi
+fi
+[[ -x $CERTBOT ]] || die "Certbot was not installed"
+if [[ $KIND == ip ]]; then
+  CERTBOT_VERSION=$($CERTBOT --version | awk '{print $2}')
+  dpkg --compare-versions "$CERTBOT_VERSION" ge 5.4 || die "IP certificates need Certbot 5.4 or newer; found $CERTBOT_VERSION. Update the selected Certbot backend separately, then retry"
+fi
+if [[ ! -f $CREDS_FILE ]]; then make_credentials; fi
 
 trap cleanup_install EXIT
 TEMP_BIN=$(mktemp)
@@ -575,23 +657,40 @@ WantedBy=timers.target
 EOF
 
 systemctl daemon-reload
+FRESH_UNITS_LOADED=$FRESH_INSTALL
+
+enable_install_unit() {
+  # Reverse activation order for rollback, including units only partly enabled.
+  if ((FRESH_INSTALL)); then FRESH_ENABLED_UNITS=("$1" "${FRESH_ENABLED_UNITS[@]}"); fi
+  systemctl enable --now "$1"
+}
 
 open_ufw_port() {
-  local port=$1 marker=$2 status
+  local port=$1 marker=$2 status rule=$1
+  local -a allow=("$port/tcp")
   if ! command -v ufw >/dev/null 2>&1; then return; fi
   status=$(LC_ALL=C ufw status) || die "could not inspect UFW rules"
   if grep -q '^Status: active$' <<< "$status"; then
+    if ((FRESH_INSTALL)) && grep -Eq "^${port}/tcp[[:space:]]+(DENY|REJECT|LIMIT)([[:space:]]+IN)?[[:space:]]+Anywhere([[:space:]]*(#.*)?)?$" <<< "$status"; then
+      die "an existing UFW rule manages $port/tcp; review it before installing"
+    fi
     # A rule limited to one source or interface does not expose the public listener.
     if ! grep -Eq "^${port}/tcp[[:space:]]+ALLOW([[:space:]]+IN)?[[:space:]]+Anywhere([[:space:]]*(#.*)?)?$" <<< "$status"; then
-      ufw allow "$port/tcp" comment 'SHB VPN'
-      printf '%s\n' "$port" > "/var/lib/shbvpn/$marker"
+      # A generic UFW rule also edits IPv6. Leave any existing IPv6 rule alone.
+      if grep -Eq "^${port}/tcp[[:space:]]+\(v6\)[[:space:]]+(ALLOW|DENY|REJECT|LIMIT)([[:space:]]+IN)?[[:space:]]+Anywhere[[:space:]]+\(v6\)([[:space:]]*(#.*)?)?$" <<< "$status"; then
+        allow=(from 0.0.0.0/0 to any port "$port" proto tcp)
+        rule=ipv4:$port
+      fi
+      ufw allow "${allow[@]}" comment 'SHB VPN'
+      if ((FRESH_INSTALL)); then FRESH_FIREWALL_RULES+=("$rule"); fi
+      printf '%s\n' "$rule" > "$STATE_DIR/$marker"
     fi
   fi
 }
 open_ufw_port 80 ufw-http-added
 open_ufw_port "$PORT" ufw-proxy-added
 
-systemctl enable --now shbvpn-acme.service
+enable_install_unit shbvpn-acme.service
 systemctl restart shbvpn-acme.service
 systemctl is-active --quiet shbvpn-acme.service || die "ACME challenge service failed; check journalctl -u shbvpn-acme"
 
@@ -606,10 +705,11 @@ if [[ $KIND == ip ]]; then
 else
   CERTBOT_ARGS+=(-d "$HOST")
 fi
+FRESH_CERTBOT_ATTEMPTED=$FRESH_INSTALL
 "$CERTBOT" "${CERTBOT_OPTIONS[@]}" "${CERTBOT_ARGS[@]}"
 [[ -r $LINEAGE/fullchain.pem && -r $LINEAGE/privkey.pem ]] || die "certificate files were not created"
 RENEWED_LINEAGE=$LINEAGE "$HOOK"
-systemctl enable --now shbvpn-proxy.service
+enable_install_unit shbvpn-proxy.service
 systemctl restart shbvpn-proxy.service
 systemctl is-active --quiet shbvpn-proxy.service || die "proxy failed; check journalctl -u shbvpn-proxy"
 python3 "$ROOT_DIR/installer/healthcheck.py"
@@ -618,7 +718,7 @@ PROXY_PID_BEFORE=$(systemctl show -p MainPID --value shbvpn-proxy.service)
 PROXY_PID_AFTER=$(systemctl show -p MainPID --value shbvpn-proxy.service)
 [[ -n $PROXY_PID_AFTER && $PROXY_PID_AFTER != 0 && $PROXY_PID_AFTER != "$PROXY_PID_BEFORE" ]] || die "deploy hook did not restart the proxy during renewal dry run"
 python3 "$ROOT_DIR/installer/healthcheck.py"
-systemctl enable --now shbvpn-renew.timer
+enable_install_unit shbvpn-renew.timer
 systemctl is-active --quiet shbvpn-renew.timer || die "certificate renewal timer failed"
 systemctl is-enabled --quiet shbvpn-renew.timer || die "certificate renewal timer is not enabled"
 

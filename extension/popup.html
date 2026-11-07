@@ -29,12 +29,30 @@
 
       <section id="setup" hidden>
         <h2>Добавить сервер</h2>
-        <p class="hint">Запустите установщик на своём VPS и вставьте полученный ключ подключения.</p>
+        <p class="hint">Укажите свой прокси или импортируйте ключ от нашего установщика.</p>
+        <form id="manual-form">
+          <label for="proxy-type">Тип прокси</label>
+          <select id="proxy-type"><option value="https">HTTPS — защищённое соединение</option><option value="http">HTTP</option><option value="socks5">SOCKS5 — без логина и пароля</option></select>
+          <label for="proxy-host">Адрес сервера</label>
+          <input id="proxy-host" placeholder="proxy.example.com" autocomplete="off" spellcheck="false" required>
+          <label for="proxy-port">Порт</label>
+          <input id="proxy-port" type="number" min="1" max="65535" value="443" required>
+          <div id="credentials">
+            <label for="proxy-user">Логин (если нужен)</label>
+            <input id="proxy-user" autocomplete="off" spellcheck="false">
+            <label for="proxy-password">Пароль</label>
+            <input id="proxy-password" type="password" autocomplete="off">
+          </div>
+          <p class="note" id="protocol-note">Сервер должен иметь действительный TLS-сертификат.</p>
+          <button type="submit" class="primary">Сохранить прокси</button>
+        </form>
+        <details><summary>Импорт ключа shbvpn1</summary>
         <form id="import-form">
           <label for="connection-key">Ключ подключения</label>
           <textarea id="connection-key" rows="3" spellcheck="false" autocomplete="off" placeholder="shbvpn1:…" required></textarea>
           <button type="submit" class="primary">Добавить сервер</button>
         </form>
+        </details>
         <p class="note">Ключ содержит пароль. Храните его как пароль от сервера.</p>
       </section>
 
@@ -43,8 +61,16 @@
         <button id="connect-button" class="primary" type="button">Подключить</button>
         <button id="test-button" class="secondary" type="button">Проверить внешний IP</button>
         <p id="ip-result" class="ip-result" aria-live="polite"></p>
-        <p class="note">Проверка обращается к api.ipify.org через настройки Chrome.</p>
+        <p class="note">По кнопке ipify получает исходящий IP соединения и возвращает его для показа здесь.</p>
 
+        <details><summary>Ожидаемый IP для входа</summary>
+          <form id="expected-ip-form">
+            <label for="expected-ip">IP сервера на выходе в интернет</label>
+            <input id="expected-ip" placeholder="Например, 203.0.113.9" autocomplete="off" spellcheck="false">
+            <p class="note">Необязательный IPv4 или IPv6. Если оставить поле пустым, проверка покажет IPv4. Проверка запускается по кнопке.</p>
+            <button type="submit" class="secondary">Сохранить ожидаемый IP</button>
+          </form>
+        </details>
         <details id="settings">
           <summary>Исключения для сайтов</summary>
           <p class="hint">Эти домены и их поддомены будут открываться напрямую. По одному домену в строке.</p>
@@ -56,13 +82,13 @@
         </details>
 
         <details id="replace">
-          <summary>Заменить сервер или удалить ключ</summary>
+          <summary>Заменить сервер или удалить настройки</summary>
           <form id="replace-form">
             <label for="replacement-key">Новый ключ подключения</label>
             <textarea id="replacement-key" rows="3" spellcheck="false" autocomplete="off" placeholder="shbvpn1:…" required></textarea>
             <button type="submit" class="secondary">Заменить сервер</button>
           </form>
-          <button id="forget-button" class="text-button" type="button">Удалить сохранённый ключ</button>
+          <button id="forget-button" class="text-button" type="button">Удалить настройки и добавить другой прокси</button>
         </details>
       </section>
 
