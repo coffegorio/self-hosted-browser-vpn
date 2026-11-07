@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Self-Hosted Browser VPN",
-  "version": "0.2.0",
-  "description": "Ваш HTTP, HTTPS или SOCKS5-прокси для Chrome: настройка подключения, проверка внешнего IP и исключения для сайтов.",
+  "version": "0.2.1",
+  "description": "Настройте HTTP, HTTPS или SOCKS5-прокси для Chrome. Проверяйте внешний IP и добавляйте исключения для сайтов.",
   "minimum_chrome_version": "108",
   "permissions": [
     "proxy",

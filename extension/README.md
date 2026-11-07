@@ -1,4 +1,4 @@
-# Chrome extension 0.2.0
+# Chrome extension 0.2.1
 
 This directory is a plain Manifest V3 extension; there is no build step or external JavaScript dependency in the shipped extension. Playwright is a development-only test dependency.
 
@@ -8,7 +8,7 @@ This directory is a plain Manifest V3 extension; there is no build step or exter
 2. Select this `extension/` directory.
 3. Enter your proxy host (ASCII domain or IPv4), port and protocol. HTTP/HTTPS accept optional Basic credentials; SOCKS5 must not require username/password authentication. HTTPS requires a trusted TLS certificate. Alternatively expand the import section and paste a legacy `shbvpn1:` key. Only one connection is saved; remove it to configure another.
 4. Click **Подключить**.
-5. Use **Проверить внешний IP** to make a request to `api.ipify.org` through the current Chrome proxy settings. Check the displayed address against the VPS's public egress address. Click **Отключить** to restore Chrome's previous route when finished.
+5. Use **Проверить внешний IP** to make an IP check through the current Chrome proxy settings. Check the displayed address against the VPS's public egress address. Click **Отключить** to restore Chrome's previous route when finished.
 
 The connection key is `shbvpn1:` followed by unpadded base64url of UTF-8 JSON with exactly `v`, `host`, `port`, `username`, and `password` fields. `v` is `1`; `host` is an ASCII FQDN or IPv4 address without a scheme; `port` is an integer. The extension stores the parsed credentials in `chrome.storage.local` and limits access to trusted extension contexts. Chrome profile files are not encrypted by this extension, so treat the key and local browser profile as secrets.
 
@@ -31,11 +31,11 @@ npm run test:conflict
 
 Tests use isolated temporary profiles and random local credentials. They never modify your everyday Chrome profile. Network fixtures deliberately permit a specific temporary test certificate by SPKI for successful TLS cases; an independent rejection case uses no certificate exception. No certificate exceptions are shipped in the extension.
 
-Build the allowlisted store ZIP from the repository root with `python3 scripts/package-extension.py`. Store materials and the exact release gate are in `store/`.
+Build the allowlisted store ZIP from the repository root with `python3 scripts/package-extension.py`. Set `SHBVPN_EXTENSION_DIR` to the absolute path of an extracted ZIP to run the browser tests on that package. To update store screenshots, run both `npm run test:browser` and `npm run test:network` with `SHBVPN_STORE_SCREENSHOTS=../store/screenshots` from this directory. See the [release checklist](../store/RELEASE-CHECKLIST.md).
 
 ## Expected exit IP
 
-Expand **Ожидаемый IP для входа**, enter the intended IPv4 or IPv6 address and save. The manual IP check reports a mismatch as an error. This is a point-in-time check, not a firewall or a continuous monitor. The ON badge means settings applied, not IP verified. Removing or replacing the saved proxy also removes the expected IP.
+Expand **Ожидаемый IP для входа**, enter the intended IPv4 or IPv6 address and save. The manual check uses `api.ipify.org` for IPv4 by default and `api6.ipify.org` when an expected IPv6 address is set. It reports mismatches and refuses to run if the selected host is excluded. The popup discards the result when proxy settings, exceptions, expected IP, or WebRTC settings change. The ON badge confirms that settings were applied. The IP check reports one observation each time you run it. Removing or replacing the saved proxy removes the expected IP.
 
 ## Boundaries
 

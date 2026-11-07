@@ -1,6 +1,6 @@
 # Self-Hosted Browser VPN
 
-Extension 0.2.0 adds manual third-party HTTP/HTTPS/SOCKS5 configuration and expected exit-IP checks. The bundled server is optional. See [extension/README.md](extension/README.md) for instructions and limitations. Chrome Web Store publication is not yet complete.
+Extension 0.2.1 connects Chrome to your HTTP, HTTPS, or SOCKS5 proxy and checks the expected exit IP. If you already have a proxy, start with the [extension guide](extension/README.md). To run your own server, follow the quick start below. [Chrome Web Store materials](store/RELEASE-CHECKLIST.md).
 
 **English** · [Русский](README.md)
 

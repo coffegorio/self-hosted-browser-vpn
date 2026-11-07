@@ -554,6 +554,33 @@ test('expected IP comparison rejects another egress and accepts the matching IP'
   assert.equal(right.ok,true);
   assert.equal(right.result.matched,true);
 });
+
+test('IP checks request the appropriate family and disallow redirects', async () => {
+  const h = await loadBackground();
+  const requests = [];
+  h.state.fetchResponse = async (url, options) => {
+    requests.push({ url, redirect: options.redirect });
+    return { ok: true, json: async () => ({ ip: requests.length === 1 ? '203.0.113.9' : '2001:db8::9' }) };
+  };
+
+  assert.deepEqual(await h.message('TEST_IP'), { ok: true, result: { ip: '203.0.113.9', matched: false } });
+  assert.equal((await h.message('SAVE_EXPECTED_IP', { ip: '2001:0DB8:0:0::9' })).ok, true);
+  assert.deepEqual(await h.message('TEST_IP'), { ok: true, result: { ip: '2001:db8::9', matched: true } });
+  assert.deepEqual(requests, [
+    { url: 'https://api.ipify.org?format=json', redirect: 'error' },
+    { url: 'https://api6.ipify.org?format=json', redirect: 'error' }
+  ]);
+});
+
+test('IPv6 IP check refuses an exclusion of the selected endpoint', async () => {
+  const h = await loadBackground({ data: { expectedIp: '2001:db8::9' } });
+  for (const exclusion of ['api6.ipify.org', 'ipify.org']) {
+    assert.equal((await h.message('SAVE_EXCLUSIONS', { text: exclusion })).ok, true);
+    assert.match((await h.message('TEST_IP')).error, /находится в исключениях/);
+  }
+  assert.equal(h.state.fetchCount, 0);
+});
+
 test('invalid expected IP does not replace saved expectation', async () => {
   const h=await loadBackground({data:{expectedIp:'203.0.113.9'}});
   assert.equal((await h.message('SAVE_EXPECTED_IP',{ip:'999.0.0.1'})).ok,false);

@@ -61,13 +61,13 @@
         <button id="connect-button" class="primary" type="button">Подключить</button>
         <button id="test-button" class="secondary" type="button">Проверить внешний IP</button>
         <p id="ip-result" class="ip-result" aria-live="polite"></p>
-        <p class="note">Проверка обращается к api.ipify.org через настройки Chrome.</p>
+        <p class="note">По кнопке ipify получает исходящий IP соединения и возвращает его для показа здесь.</p>
 
         <details><summary>Ожидаемый IP для входа</summary>
           <form id="expected-ip-form">
             <label for="expected-ip">IP сервера на выходе в интернет</label>
             <input id="expected-ip" placeholder="Например, 203.0.113.9" autocomplete="off" spellcheck="false">
-            <p class="note">Необязательно. Проверка сообщит о несовпадении. Это проверка по кнопке, а не постоянная блокировка сети.</p>
+            <p class="note">Необязательный IPv4 или IPv6. Если оставить поле пустым, проверка покажет IPv4. Проверка запускается по кнопке.</p>
             <button type="submit" class="secondary">Сохранить ожидаемый IP</button>
           </form>
         </details>

@@ -401,14 +401,18 @@ async function testIp() {
   if (current.state !== 'active' && current.canRetryIp !== true) {
     throw new Error('Сначала включите подключение и устраните ошибки прокси.');
   }
-  if (isExcludedHost('api.ipify.org', current.exclusions)) {
+  const expectedIp = normalizeExpectedIp(current.expectedIp);
+  const host = expectedIp.includes(':') ? 'api6.ipify.org' : 'api.ipify.org';
+  if (isExcludedHost(host, current.exclusions)) {
     throw new Error('Сервис проверки IP находится в исключениях. Удалите его из списка и повторите проверку.');
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   const previousError = current.proxyError;
   try {
-    const response = await fetch('https://api.ipify.org?format=json', { cache: 'no-store', signal: controller.signal });
+    const response = await fetch(`https://${host}?format=json`, {
+      cache: 'no-store', redirect: 'error', signal: controller.signal
+    });
     if (!response.ok) throw new Error('Сервис проверки IP недоступен.');
     const body = await response.json();
     if (typeof body.ip !== 'string' || body.ip.length > 64 || !/^[0-9a-fA-F:.]+$/.test(body.ip)) {
@@ -420,8 +424,8 @@ async function testIp() {
     }
     const actual = normalizeExpectedIp(body.ip);
     if (!actual) throw new Error('Пустой IP.');
-    if (current.expectedIp && normalizeExpectedIp(current.expectedIp) !== actual) {
-      const error = new Error(`IP не совпадает: получен ${actual}, ожидается ${current.expectedIp}. Не продолжайте вход, пока не проверите прокси.`);
+    if (expectedIp && expectedIp !== actual) {
+      const error = new Error(`IP не совпадает: получен ${actual}, ожидается ${expectedIp}. Не продолжайте вход, пока не проверите прокси.`);
       error.code = 'IP_MISMATCH';
       throw error;
     }
@@ -450,7 +454,7 @@ async function testIp() {
     if (configurationChanging || changed()) {
       throw new Error('Параметры подключения изменились во время проверки.');
     }
-    return { ip: actual, matched: Boolean(current.expectedIp) };
+    return { ip: actual, matched: Boolean(expectedIp) };
   } catch (error) {
     if (error.code === 'IP_MISMATCH') throw error;
     throw new Error('Не удалось проверить внешний IP. Проверьте сервер и попробуйте ещё раз.');

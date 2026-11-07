@@ -1,40 +1,52 @@
-# Chrome Web Store listing draft
+# Chrome Web Store · Self-Hosted Browser VPN 0.2.1
 
-Name: Self-Hosted Browser VPN
+- **Name** — Self-Hosted Browser VPN
+- **Primary language** — Russian
+- **Category** — Privacy & Security
+- **Home page** — https://github.com/coffegorio/self-hosted-browser-vpn
+- **Support** — https://github.com/coffegorio/self-hosted-browser-vpn/issues
+- **Privacy policy** — https://github.com/coffegorio/self-hosted-browser-vpn/blob/codex/chrome-store-release/store/PRIVACY.md
+- **Store icon** — `extension/icons/icon-128.png`
+- **Screenshots** — `store/screenshots/setup.png`, `store/screenshots/configured.png`, `store/screenshots/verified.png`
 
-Short description:
-Connect Chrome to your own HTTP, HTTPS or SOCKS5 proxy. Check your exit IP and manage domain exclusions.
+## Short description
 
-Full description:
-Use a proxy server you control or obtain from your provider. Enter the address, port and protocol directly, or import a shbvpn1 key from the project's optional server installer.
+Настройте HTTP, HTTPS или SOCKS5-прокси для Chrome. Проверяйте внешний IP и добавляйте исключения для сайтов.
 
-Features:
-- HTTP and HTTPS proxies with optional Basic authentication.
-- SOCKS5 without username/password authentication (a Chrome limitation).
-- Explicit connect and disconnect controls.
-- External IP check with an optional expected exit IP comparison.
-- Domain exclusions for sites you intentionally want to access directly.
-- Proxy-setting conflict and connection error reporting.
-- WebRTC non-proxied UDP restriction while connected.
+## Detailed description
 
-You supply the proxy. No account with the extension developer or subscription is required. This extension affects browser web requests; it does not create a system VPN or route other applications. A displayed active setting is not proof of a working connection: use the IP check before signing in. The expected-IP check is manual and is not a continuous firewall. Localhost and link-local destinations have browser-level bypass behavior. Browser policies and other extensions may prevent proxy control.
+Подключите Chrome к своему прокси. Введите адрес и порт или импортируйте ключ `shbvpn1` от сервера проекта. Подойдёт и прокси, который у вас уже есть. Расширение бесплатно. Сервер предоставляет пользователь, аккаунт у разработчика расширения не нужен.
 
-Credentials are stored locally in your Chrome profile and are not encrypted by this extension. IP checks contact api.ipify.org only when requested. The extension has no analytics or advertising.
+- Подключение к HTTP и HTTPS с необязательной Basic-аутентификацией и к SOCKS5 без логина и пароля.
+- Ручная проверка внешнего IPv4 или IPv6. Можно сохранить ожидаемый адрес и сравнить его с результатом.
+- Исключения для доменов, которые должны открываться напрямую.
+- Индикация ошибок прокси и конфликтов с настройками Chrome.
 
-## Dashboard declarations to review before submission
+Расширение управляет веб-трафиком текущего профиля Chrome. Другие приложения сохраняют свои сетевые настройки. Проверка IP работает по кнопке и обращается к сервису ipify. Значок ON показывает, что настройки применены. Чтобы проверить соединение, нажмите «Проверить внешний IP». При конфликте или смене настроек браузер может перейти на другой маршрут.
 
-Single purpose: Configure and verify a user-supplied browser proxy.
+Логин и пароль прокси хранятся локально в профиле Chrome. HTTPS шифрует соединение с прокси. При выборе HTTP логин и пароль Basic-аутентификации могут передаваться открыто. В расширении нет аналитики и рекламы.
 
-proxy: Set and clear the user's chosen proxy configuration.
-privacy: Restrict non-proxied WebRTC UDP while connected.
-storage: Save proxy configuration and local state.
-webRequest + webRequestAuthProvider: Respond to HTTP proxy authentication challenges only for the configured proxy endpoint.
-<all_urls>: Proxy authentication challenges occur for arbitrary destination URLs, including those not known before installation. There are no content scripts.
-Remote code: None. All executable extension code is packaged locally.
+## Privacy practices
 
-Publication option proposed: Unlisted (still requires normal store review).
-Privacy policy URL: https://github.com/coffegorio/self-hosted-browser-vpn/blob/codex/chrome-store-release/store/PRIVACY.md
+**Single purpose.** Configure and verify a user-supplied proxy for Chrome web requests.
 
-Reviewer instructions: see store/REVIEWER-INSTRUCTIONS.md.
+| Permission | Justification |
+| --- | --- |
+| `proxy` | Set the chosen proxy and user-defined direct exceptions when the user connects. Clear this extension's setting on disconnect. |
+| `privacy` | Restrict non-proxied WebRTC UDP while the user is connected and remove the restriction on disconnect. |
+| `storage` | Save the proxy endpoint, optional proxy credentials, exceptions, expected IP, and connection state locally. |
+| `webRequest` | Handle proxy challenges and clear per-request retry bookkeeping when a request ends. |
+| `webRequestAuthProvider` | Respond to matching Basic proxy challenges for the user's configured endpoint. |
+| `<all_urls>` | A proxy challenge can occur for any website the user visits, including destinations unknown at installation. There are no content scripts. |
 
-Do not submit until the release checklist and browser network tests are complete.
+**Remote code.** None. Extension code and PAC generation are bundled locally. The IP endpoint returns JSON data only.
+
+**Data disclosures.** Disclose authentication information used for optional proxy login and location/IP information used for the exit-IP check. The entered proxy username and password are stored locally and sent only to the user's selected proxy on a matching challenge. The observed IP is displayed in the popup and an expected IP is saved locally only if the user enters it. Pressing the IP check button sends an HTTPS request to ipify, which sees the request's exit IP. The developer operates no collection endpoint. The user's chosen proxy handles the web traffic routed to it. The extension keeps no browsing log, cookies, page content, analytics or advertising data.
+
+Verify the dashboard declarations against the [privacy policy](PRIVACY.md) before certifying them. Keep the existing proposed **Unlisted** visibility if the release is intended for direct-link installation. Use **Public** if the owner wants discovery in the store. Both undergo review.
+
+## Review
+
+Paste the [reviewer instructions](REVIEWER-INSTRUCTIONS.md) into **Test instructions**. The reviewer can use a proxy they control. There is no developer login or paid feature to unlock.
+
+[Listing fields](https://developer.chrome.com/docs/webstore/cws-dashboard-listing) · [Privacy fields](https://developer.chrome.com/docs/webstore/cws-dashboard-privacy) · [Distribution](https://developer.chrome.com/docs/webstore/cws-dashboard-distribution)

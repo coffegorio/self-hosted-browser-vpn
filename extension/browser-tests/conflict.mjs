@@ -4,7 +4,7 @@ import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-const root=fileURLToPath(new URL('../',import.meta.url));
+const root=process.env.SHBVPN_EXTENSION_DIR || fileURLToPath(new URL('../',import.meta.url));
 const tmp=await mkdtemp(path.join(tmpdir(),'proxy-conflict-'));
 const rival=path.join(tmp,'rival');await mkdir(rival);
 await writeFile(path.join(rival,'manifest.json'),JSON.stringify({manifest_version:3,name:'Test proxy owner',version:'1.0',permissions:['proxy'],background:{service_worker:'rival.js'}}));
@@ -24,7 +24,9 @@ try{
  assert.equal((await other.evaluate(()=>chrome.proxy.settings.get({incognito:false}))).value.mode,'direct');
  await other.evaluate(()=>chrome.proxy.settings.clear({scope:'regular'}));
  assert.equal((await message('CONNECT')).ok,true);
+ await page.waitForFunction(()=>document.getElementById('status-title').textContent==='Маршрутизация включена');
  await other.evaluate(()=>chrome.proxy.settings.set({scope:'regular',value:{mode:'direct'}}));
+ await page.waitForFunction(()=>document.getElementById('status-title').textContent==='Конфликт настроек');
  const state=await message('GET_STATE');assert.equal(state.result.state,'conflict');
  assert.equal((await message('TEST_IP')).ok,false);
  assert.equal((await message('DISCONNECT')).ok,true);

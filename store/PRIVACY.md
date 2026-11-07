@@ -1,23 +1,25 @@
-# Privacy policy — Self-Hosted Browser VPN
+# Privacy policy · Self-Hosted Browser VPN
 
-This extension lets you configure your own proxy for Chrome's web requests. It is not a system VPN. The developer does not operate the proxy you enter.
+Self-Hosted Browser VPN configures the proxy you choose for Chrome's web requests. The developer does not operate that proxy.
 
-## Data stored on your device
+## Settings on your device
 
-Proxy address, port, protocol, optional proxy username and password, expected exit IP, domain exclusions and connection settings are stored in Chrome's local extension storage. They are not synced by the extension and are not sent to the developer. Local storage is not encrypted by this extension; protect your computer and browser profile. Removing the extension removes its local settings. The extension also provides a button to remove the saved connection.
+The extension stores your proxy address, port, protocol, optional proxy username and password, expected exit IP, domain exceptions and connection settings in Chrome's local extension storage. The extension does not sync this data or send it to the developer. The extension does not encrypt the local browser profile. You can remove the saved settings from the popup. Uninstalling the extension removes its local settings.
 
-## Connections and authentication
+## Proxy connections
 
-Chrome sends proxied requests to the proxy you select. That provider receives connection information and handles traffic under its own policies. The extension only supplies saved proxy credentials to matching proxy authentication challenges; it does not send them to destination websites. HTTPS proxies encrypt the connection to the proxy. HTTP proxies do not encrypt that connection, including Basic proxy authentication. HTTPS destination sites retain their own TLS encryption.
+Chrome sends traffic for the selected route to the proxy you configured. The proxy provider handles that traffic under its own policies. The extension supplies saved credentials only for matching proxy authentication challenges. HTTPS proxy transport encrypts the connection to the proxy. HTTP proxy transport can expose Basic proxy credentials on that connection. Connections to HTTPS websites retain the websites' own TLS encryption.
 
-## Optional external IP check
+## External IP check
 
-When you press the IP check button, the extension requests https://api.ipify.org?format=json through Chrome's configured route. That service receives the request's source IP and ordinary request metadata. The extension uses its reply to display your external IP and compare it with an optional expected IP. See https://www.ipify.org/ for information about this service. Checks are initiated by you, not continuous monitoring.
+When you press the IP check button, the extension requests `https://api.ipify.org?format=json` for IPv4 or `https://api6.ipify.org?format=json` when you configured an expected IPv6 address. [Ipify](https://www.ipify.org/) sees the request's source IP and ordinary request metadata. The extension displays the reply and compares it with the expected IP, if you entered one. The reply is held in the open popup for display and is not saved to disk. The check runs only when requested.
 
-## Permissions
+## Permissions and use of data
 
-Proxy permission sets browser routing. Privacy permission restricts non-proxied WebRTC UDP while connected and clears this extension's preference on disconnect. Storage retains your configuration. Web request and authentication permissions handle proxy authentication for arbitrary destination websites. The extension does not collect page content, cookies, browsing history or analytics, sell data, or use advertising SDKs. Proxy errors are retained locally as a short code and timestamp without website URLs.
+Proxy permission sets the selected route. Privacy permission restricts non-proxied WebRTC UDP during the connection. Storage retains local settings. Web request and authentication permissions handle proxy challenges for arbitrary destinations. Proxy errors are stored locally as a short code and timestamp without website URLs. The extension keeps no browsing history, page content, cookies, analytics, or advertising data. The developer does not sell user data.
+
+The extension's use of information received through Chrome APIs complies with the [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/limited-use), including its Limited Use requirements.
 
 ## Contact
 
-Questions can be submitted at https://github.com/coffegorio/self-hosted-browser-vpn/issues. Do not include passwords, connection keys or other private information in public issues. Security reporting instructions are in the repository's SECURITY.md.
+Use the [project issue tracker](https://github.com/coffegorio/self-hosted-browser-vpn/issues) for general questions. Keep credentials and private connection information out of public issues. See [SECURITY.md](../SECURITY.md) for security reports.

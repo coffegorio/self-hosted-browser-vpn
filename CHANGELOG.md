@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — Chrome Web Store candidate
+
+- Configure HTTP, HTTPS or unauthenticated SOCKS5 directly, or import an existing `shbvpn1` key.
+- Compare the browser's exit IP with an expected IPv4 or IPv6 address. Clear the result when proxy settings change and refuse redirects during the check.
+- Preserve the remaining direction of a CONNECT tunnel after a clean half-close.
+- Roll back a failed first Ubuntu installation, including proxy services, renewal state, and firewall rules created during the attempt.
+- Test the actual store ZIP in Chromium and include the listing, privacy policy and screenshots in the CI artifact.
+
 ## Unreleased — current `main`
 
 - Added Docker Compose deployment with Linux containers for Linux, macOS, and supported Windows hosts, plus Russian and English setup guides.
