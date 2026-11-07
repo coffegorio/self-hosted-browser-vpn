@@ -325,22 +325,30 @@ func (p *proxyServer) connect(w http.ResponseWriter, r *http.Request) {
 		_ = upstream.Close()
 		return
 	}
-	done := make(chan struct{}, 2)
+	done := make(chan bool, 2)
 	// The HTTP parser can already have buffered part of the tunnel payload.
 	go tunnelCopy(upstream, buffered, done)
 	go tunnelCopy(client, upstream, done)
-	<-done
-	_ = client.Close()
+	// After a clean half-close, keep the reverse direction open. On failure,
+	// close both sockets to unblock the other copy before waiting for it.
+	firstHalfClosed := <-done
+	if firstHalfClosed {
+		<-done
+	}
 	_ = upstream.Close()
-	<-done
+	_ = client.Close()
+	if !firstHalfClosed {
+		<-done
+	}
 }
 
-func tunnelCopy(dst net.Conn, src io.Reader, done chan<- struct{}) {
-	_, _ = io.Copy(dst, src)
-	if tcp, ok := dst.(*net.TCPConn); ok {
-		_ = tcp.CloseWrite()
+func tunnelCopy(dst net.Conn, src io.Reader, done chan<- bool) {
+	if _, err := io.Copy(dst, src); err != nil {
+		done <- false
+		return
 	}
-	done <- struct{}{}
+	writer, ok := dst.(interface{ CloseWrite() error })
+	done <- ok && writer.CloseWrite() == nil
 }
 
 func (p *proxyServer) forwardHTTP(w http.ResponseWriter, r *http.Request) {
