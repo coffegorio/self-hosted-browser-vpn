@@ -288,7 +288,11 @@ PY
   fi
 else
   # Only reserve paths that can be removed safely if the fresh installation fails.
-  FRESH_PATHS=("$CONFIG_DIR" "$STATE_DIR" "$INSTALLED_ROOT" "$PROXY_BIN" "$PROXY_BIN.new" "$MANAGE_BIN" "$HOOK" "${UNIT_FILES[@]}")
+  FRESH_PATHS=(
+    "$CONFIG_DIR" "$STATE_DIR" "$INSTALLED_ROOT"
+    "$PROXY_BIN" "$PROXY_BIN.new" "$MANAGE_BIN" "$HOOK"
+    "${UNIT_FILES[@]}"
+  )
   if [[ -n $CERTBOT_LOG_DIR ]]; then FRESH_PATHS+=("$CERTBOT_LOG_DIR"); fi
   for path in "${FRESH_PATHS[@]}" "$LINEAGE" "$RENEWAL_FILE" /etc/letsencrypt/renewal/shbvpn.conf; do
     if [[ -e $path || -L $path ]]; then die "existing resource conflicts with a fresh installation: $path"; fi

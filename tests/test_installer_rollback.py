@@ -44,7 +44,9 @@ systemctl() {
   echo "systemctl $*" >> "$MOCK/commands"
   case "$1" in
     cat) return 1 ;;
-    enable) touch "$MOCK/enabled.$3" "$MOCK/active.$3" ;;
+    enable)
+      touch "$MOCK/enabled.$3" "$MOCK/active.$3"
+      if [[ $FAIL_AT == timer && $3 == shbvpn-renew.timer ]]; then return 23; fi ;;
     restart) touch "$MOCK/active.$2" ;;
     is-active) [[ -e $MOCK/active.$3 ]] ;;
     is-enabled) [[ -e $MOCK/enabled.$3 ]] ;;
@@ -60,6 +62,7 @@ ufw() {
   echo "ufw $*" >> "$MOCK/commands"
   if [[ $1 == status ]]; then
     printf 'Status: active\n80/tcp ALLOW Anywhere\n443/tcp (v6) ALLOW Anywhere (v6) # original\n'
+    if [[ $FAIL_AT == ufw-conflict ]]; then echo '443/tcp DENY Anywhere # original'; fi
   fi
 }
 """
@@ -155,8 +158,18 @@ esac
         self.assertNotIn("certbot delete", commands)
         self.assertEqual(
             [line for line in commands.splitlines() if line.startswith("ufw --force")],
-            ["ufw --force delete allow from 0.0.0.0/0 to any port 443 proto tcp"],
+            ["ufw --force delete allow from 0.0.0.0/0 to any port 443 proto tcp comment SHB VPN"],
         )
+        self.assert_clean()
+
+    def test_ufw_conflict_does_not_overwrite_existing_policy_or_enable_services(self):
+        result = self.run_install("ufw-conflict")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("an existing UFW rule manages 443/tcp", result.stderr)
+        commands = self.commands()
+        self.assertNotIn("ufw allow", commands)
+        self.assertNotIn("ufw --force delete", commands)
+        self.assertNotIn("systemctl disable", commands)
         self.assert_clean()
 
     def test_dry_run_failure_cleans_issued_certificate_and_allows_corrected_retry(self):
@@ -173,6 +186,14 @@ esac
         self.assertEqual(retry.returncode, 0, retry.stderr)
         self.assertIn("systemctl enable --now shbvpn-renew.timer", self.commands())
         self.assertEqual(json.loads(self.config.read_text())["host"], "corrected.example.com")
+
+    def test_timer_enable_failure_stops_renewal_and_removes_new_installation(self):
+        result = self.run_install("timer")
+        self.assertEqual(result.returncode, 23, result.stderr)
+        commands = self.commands()
+        self.assertIn("systemctl disable --now shbvpn-renew.timer", commands)
+        self.assertIn("systemctl stop shbvpn-renew.service", commands)
+        self.assert_clean()
 
     def test_existing_configuration_is_preserved_when_installation_is_refused(self):
         original = '{"kind":"domain","host":"old.example.com","port":443}'

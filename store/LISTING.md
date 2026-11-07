@@ -5,7 +5,7 @@
 - **Category** — Privacy & Security
 - **Home page** — https://github.com/coffegorio/self-hosted-browser-vpn
 - **Support** — https://github.com/coffegorio/self-hosted-browser-vpn/issues
-- **Privacy policy** — https://github.com/coffegorio/self-hosted-browser-vpn/blob/codex/chrome-store-release/store/PRIVACY.md
+- **Privacy policy** — https://github.com/coffegorio/self-hosted-browser-vpn/blob/c1ef2553c19bb2e33cb7c5f787856e1fd12164ef/store/PRIVACY.md
 - **Store icon** — `extension/icons/icon-128.png`
 - **Screenshots** — `store/screenshots/setup.png`, `store/screenshots/configured.png`, `store/screenshots/verified.png`
 
